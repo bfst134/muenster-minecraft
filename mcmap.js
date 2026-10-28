@@ -7,22 +7,42 @@ import { pointInFeature } from "./biome.js";
 // Pixelgröße in CSS-Pixeln je Kartenpixel
 export const PIXEL_SIZES = { fein: 1.5, mittel: 2, grob: 3 };
 
-// ---------- Blockfarben ----------
-const C = {
-  grass: "#7fb238", park: "#8cc04a", leaves: "#2f6b1f", farmland: "#c9c26a", sand: "#e8d998",
-  wetland: "#5f9a6a", water: "#3f76e4", cemetery: "#6f9a52", sports: "#5f9a34", track: "#b5553c",
-  residential: "#cdc7bb",   // heller Andesit
-  commercial: "#dcc0b4",    // Granit
-  industrial: "#cbb7cc",    // Purpur
-  education: "#efe2a8",     // Endstein
-  plaza: "#e2dccd",
-  brick: "#9a5a48", brickShadow: "#5e3328",
-  casing: "#3b3229",
-  motorway: "#c4543b",      // rote Terrakotta
-  primary: "#e08a3c",       // orange Terrakotta
-  secondary: "#e6cf6a",     // Sandstein
-  minor: "#f1ece0",         // Quarz
-  path: "#a5854c", cycleway: "#3f63c9", rail: "#4a4a4a", railTie: "#b0b0b0",
+// ---------- Blockfarben je Dimension ----------
+const PALETTES = {
+  overworld: {
+    grass: "#7fb238", park: "#8cc04a", leaves: "#2f6b1f", farmland: "#c9c26a", sand: "#e8d998",
+    wetland: "#5f9a6a", water: "#3f76e4", cemetery: "#6f9a52", sports: "#5f9a34", track: "#b5553c",
+    residential: "#cdc7bb",   // heller Andesit
+    commercial: "#dcc0b4",    // Granit
+    industrial: "#cbb7cc",    // Purpur
+    education: "#efe2a8",     // Endstein
+    plaza: "#e2dccd",
+    brick: "#9a5a48", brickShadow: "#5e3328",
+    casing: "#3b3229",
+    motorway: "#c4543b",      // rote Terrakotta
+    primary: "#e08a3c",       // orange Terrakotta
+    secondary: "#e6cf6a",     // Sandstein
+    minor: "#f1ece0",         // Quarz
+    path: "#a5854c", cycleway: "#3f63c9", rail: "#4a4a4a", railTie: "#b0b0b0",
+  },
+  nether: {
+    grass: "#6f2b2b",         // Netherrack
+    park: "#2b6e66",          // Wirr-Nezel
+    leaves: "#8c1f2c",        // Karmesin
+    farmland: "#4e3b30", sand: "#5b4636", // Seelenerde, Seelensand
+    wetland: "#3a2f3a", water: "#e0640f", // Lava statt Wasser
+    cemetery: "#4a3a30", sports: "#2f5f5a", track: "#7a2a1a",
+    residential: "#3a3438",   // Schwarzstein
+    commercial: "#4d4a52",    // Basalt
+    industrial: "#5a2a20",    // Magma
+    education: "#e8c46a",     // Leuchtstein
+    plaza: "#2e292e",
+    brick: "#3d1c22", brickShadow: "#1c0b0f", // Netherziegel
+    casing: "#140808",
+    motorway: "#b8401c", primary: "#d48a2a", secondary: "#e8c46a",
+    minor: "#e6ddd4",         // Netherquarz
+    path: "#5a4535", cycleway: "#2fa39a", rail: "#2a2a2a", railTie: "#8a7a7a",
+  },
 };
 
 // ---------- Selbst erzeugte Blocktexturen (8×8 Pixel) ----------
@@ -34,20 +54,32 @@ function pattern(seed, pick) {
   return { width: n, height: n, data };
 }
 const from = (cols) => (x, y, r) => cols[Math.floor(r() * cols.length)];
+// Ziegel: Fugen in Zeile 3 und 7, versetzte Stoßfugen
+const bricks = (mortar, cols) => (x, y, r) => (y % 4 === 3 || x === (y < 4 ? 0 : 4) ? mortar : from(cols)(x, y, r));
+const grid = (line, cols) => (x, y, r) => (x % 4 === 0 || y % 4 === 0 ? line : from(cols)(x, y, r));
 const PATTERNS = {
-  "tex-grass": pattern(3, from(["#7fb238", "#7fb238", "#74a632", "#8cc03f", "#6a9a2c"])),
-  "tex-park": pattern(4, from(["#8cc04a", "#8cc04a", "#80b442", "#98cc55", "#76a83c"])),
-  "tex-leaves": pattern(5, from(["#2f6b1f", "#2f6b1f", "#3a7d27", "#24561a", "#1c4514"])),
-  "tex-water": pattern(9, (x, y, r) => ((y + Math.floor(x / 3)) % 4 === 0 && r() > 0.3 ? "#5a8cf0" : r() > 0.5 ? "#3f76e4" : "#3a6fd8")),
-  // Backstein wie in Münster: Fugen in Zeile 3 und 7, versetzte Stoßfugen
-  "tex-bricks": pattern(13, (x, y, r) => {
-    if (y % 4 === 3 || x === (y < 4 ? 0 : 4)) return "#8c8279";
-    return r() > 0.3 ? "#9a5a48" : r() > 0.5 ? "#a86450" : "#8a4e3e";
-  }),
-  "tex-sand": pattern(19, from(["#e8d998", "#ded08c", "#f0e2a6"])),
-  "tex-farmland": pattern(23, (x, y, r) => (y % 3 === 0 ? "#8a6a40" : r() > 0.4 ? "#c9c26a" : "#b8b05c")),
-  "tex-andesite": pattern(29, from(["#cdc7bb", "#cdc7bb", "#c4beb2", "#d6d0c4"])),
-  "tex-plaza": pattern(31, (x, y, r) => (x % 4 === 0 || y % 4 === 0 ? "#d2cbbb" : r() > 0.5 ? "#e2dccd" : "#e8e2d4")),
+  overworld: {
+    "tex-grass": pattern(3, from(["#7fb238", "#7fb238", "#74a632", "#8cc03f", "#6a9a2c"])),
+    "tex-park": pattern(4, from(["#8cc04a", "#8cc04a", "#80b442", "#98cc55", "#76a83c"])),
+    "tex-leaves": pattern(5, from(["#2f6b1f", "#2f6b1f", "#3a7d27", "#24561a", "#1c4514"])),
+    "tex-water": pattern(9, (x, y, r) => ((y + Math.floor(x / 3)) % 4 === 0 && r() > 0.3 ? "#5a8cf0" : r() > 0.5 ? "#3f76e4" : "#3a6fd8")),
+    "tex-bricks": pattern(13, bricks("#8c8279", ["#9a5a48", "#9a5a48", "#a86450", "#8a4e3e"])),
+    "tex-sand": pattern(19, from(["#e8d998", "#ded08c", "#f0e2a6"])),
+    "tex-farmland": pattern(23, (x, y, r) => (y % 3 === 0 ? "#8a6a40" : r() > 0.4 ? "#c9c26a" : "#b8b05c")),
+    "tex-andesite": pattern(29, from(["#cdc7bb", "#cdc7bb", "#c4beb2", "#d6d0c4"])),
+    "tex-plaza": pattern(31, grid("#d2cbbb", ["#e2dccd", "#e8e2d4"])),
+  },
+  nether: {
+    "tex-grass": pattern(3, from(["#6f2b2b", "#6f2b2b", "#5e2222", "#7d3333", "#4f1c1c"])),
+    "tex-park": pattern(4, from(["#2b6e66", "#2b6e66", "#236058", "#358277", "#1d5048"])),
+    "tex-leaves": pattern(5, from(["#8c1f2c", "#8c1f2c", "#a02838", "#741826", "#5e1220"])),
+    "tex-water": pattern(9, (x, y, r) => ((y + Math.floor(x / 3)) % 4 === 0 && r() > 0.4 ? "#ffc040" : r() > 0.5 ? "#e0640f" : "#c94e0a")),
+    "tex-bricks": pattern(13, bricks("#1c0b0f", ["#3d1c22", "#3d1c22", "#45222a", "#351820"])),
+    "tex-sand": pattern(19, from(["#5b4636", "#4e3b2e", "#66503e", "#3f2f25"])),
+    "tex-farmland": pattern(23, from(["#4e3b30", "#45342a", "#57443a"])),
+    "tex-andesite": pattern(29, from(["#3a3438", "#3a3438", "#332d31", "#423b40"])),
+    "tex-plaza": pattern(31, grid("#231f23", ["#2e292e", "#353035"])),
+  },
 };
 
 // ---------- Hilfen für den Stil ----------
@@ -69,19 +101,19 @@ function texture(id, sourceLayer, filter, tex) {
     paint: { "fill-pattern": tex, "fill-opacity": texOpacity, "fill-antialias": false } };
 }
 // stops: [zoom, Breite, zoom, Breite, …]; der Rand ist an jeder Stufe 2 px breiter
-function road(id, filter, color, stops, minzoom = 0) {
+function road(id, filter, [color, casingColor], stops, minzoom = 0) {
   const casing = stops.map((v, i) => (i % 2 ? v + 2 : v));
   const base = { type: "line", source: "omt", "source-layer": "transportation", minzoom, filter: ["all", notTunnel, isLine, filter],
     layout: { "line-cap": "butt", "line-join": "miter" } };
   return [
-    { ...base, id: `${id}-casing`, paint: { "line-color": C.casing, "line-width": width(...casing) } },
+    { ...base, id: `${id}-casing`, paint: { "line-color": casingColor, "line-width": width(...casing) } },
     { ...base, id, paint: { "line-color": color, "line-width": width(...stops) } },
   ];
 }
 
 // ---------- Kartenebenen: Flächen, Wasser, Gebäude, Straßen ----------
 const residential = cls("residential", "suburb", "quarter", "neighbourhood");
-const MC_LAYERS = [
+const buildLayers = (C) => [
   { id: "bg", type: "background", paint: { "background-color": C.grass } },
   { id: "bg-tex", type: "background", minzoom: 15.5, paint: { "background-pattern": "tex-grass", "background-opacity": texOpacity } },
 
@@ -131,12 +163,12 @@ const MC_LAYERS = [
     paint: { "line-color": C.cycleway, "line-width": width(13, 1.5, 16, 2.5, 18, 5), "line-dasharray": [2, 1] } },
 
   // Straßen, von klein nach groß, jeweils mit dunklem Rand
-  ...road("road-service", cls("service"), C.minor, [14, 1, 16, 3, 18, 9], 14),
-  ...road("road-minor", cls("minor"), C.minor, [12, 0.8, 14, 2.5, 16, 7, 18, 18], 12),
-  ...road("road-tertiary", cls("tertiary"), C.minor, [10, 1, 13, 2.5, 16, 9, 18, 22]),
-  ...road("road-secondary", cls("secondary"), C.secondary, [9, 1, 13, 3, 16, 10, 18, 24]),
-  ...road("road-primary", cls("primary"), C.primary, [8, 1, 13, 3.5, 16, 11, 18, 26]),
-  ...road("road-motorway", cls("motorway", "trunk"), C.motorway, [6, 1, 13, 4, 16, 12, 18, 28]),
+  ...road("road-service", cls("service"), [C.minor, C.casing], [14, 1, 16, 3, 18, 9], 14),
+  ...road("road-minor", cls("minor"), [C.minor, C.casing], [12, 0.8, 14, 2.5, 16, 7, 18, 18], 12),
+  ...road("road-tertiary", cls("tertiary"), [C.minor, C.casing], [10, 1, 13, 2.5, 16, 9, 18, 22]),
+  ...road("road-secondary", cls("secondary"), [C.secondary, C.casing], [9, 1, 13, 3, 16, 10, 18, 24]),
+  ...road("road-primary", cls("primary"), [C.primary, C.casing], [8, 1, 13, 3.5, 16, 11, 18, 26]),
+  ...road("road-motorway", cls("motorway", "trunk"), [C.motorway, C.casing], [6, 1, 13, 4, 16, 12, 18, 28]),
 
   // Schienen: dunkel mit hellen Schwellen
   { id: "rail", type: "line", source: "omt", "source-layer": "transportation", filter: ["all", notTunnel, cls("rail", "transit")],
@@ -144,11 +176,12 @@ const MC_LAYERS = [
   { id: "rail-ties", type: "line", source: "omt", "source-layer": "transportation", minzoom: 13, filter: ["all", notTunnel, cls("rail", "transit")],
     paint: { "line-color": C.railTie, "line-width": width(13, 1, 18, 3), "line-dasharray": [2, 2] } },
 ];
+const MC_LAYERS = buildLayers(PALETTES.overworld);
 
 const OMT = { type: "vector", url: "https://tiles.openfreemap.org/planet",
   attribution: '<a href="https://openfreemap.org" target="_blank">OpenFreeMap</a> © <a href="https://www.openmaptiles.org/" target="_blank">OpenMapTiles</a> Daten von <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a>' };
 
-const BASE_STYLE = {
+const baseStyle = (dimension) => ({
   version: 8,
   sources: {
     omt: OMT,
@@ -156,12 +189,12 @@ const BASE_STYLE = {
       attribution: '© <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a>' },
   },
   layers: [
-    ...MC_LAYERS,
+    ...buildLayers(PALETTES[dimension]),
     { id: "osm", type: "raster", source: "osm", layout: { visibility: "none" } },
     // Unsichtbar, aber immer aktiv: hält die Vektordaten auch bei der normalen Karte geladen (fürs Biom)
     { id: "probe", type: "fill", source: "omt", "source-layer": "water", paint: { "fill-opacity": 0 } },
   ],
-};
+});
 
 // ---------- Beschriftungen: weiß mit dunklem Rand wie Namensschilder ----------
 const tag = { "text-color": "#ffffff", "text-halo-color": "rgba(30, 30, 30, 0.85)", "text-halo-width": 1.6 };
@@ -207,11 +240,11 @@ function circle(lat, lon, radius, steps = 48) {
   return { type: "Feature", geometry: { type: "Polygon", coordinates: [ring] }, properties: {} };
 }
 
-export function createMcMap({ container, labelsContainer, center, zoom, pixelSize, kind = "mc" }) {
-  const state = { px: pixelSize, kind };
+export function createMcMap({ container, labelsContainer, center, zoom, pixelSize, kind = "mc", dimension = "overworld" }) {
+  const state = { px: pixelSize, kind, dim: dimension };
   const view = { center, zoom };
   const map = new maplibregl.Map({
-    container, style: BASE_STYLE, ...view, maxZoom: 19.5, minZoom: 10,
+    container, style: baseStyle(state.dim), ...view, maxZoom: 19.5, minZoom: 10,
     pixelRatio: kind === "mc" ? 1 / pixelSize : window.devicePixelRatio,
     attributionControl: { compact: true }, dragRotate: false, pitchWithRotate: false,
   });
@@ -222,8 +255,18 @@ export function createMcMap({ container, labelsContainer, center, zoom, pixelSiz
   labels.on("error", (ev) => console.error("Beschriftung:", ev.error?.message ?? ev));
 
   // Texturpixel = Kartenpixel: die Bilder bekommen dieselbe Pixeldichte wie die Karte
-  const addPattern = (id) => map.addImage(id, PATTERNS[id], { pixelRatio: 1 / state.px });
-  map.on("styleimagemissing", (ev) => { if (PATTERNS[ev.id] && !map.hasImage(ev.id)) addPattern(ev.id); });
+  const addPattern = (id) => map.addImage(id, PATTERNS[state.dim][id], { pixelRatio: 1 / state.px });
+  map.on("styleimagemissing", (ev) => { if (PATTERNS[state.dim][ev.id] && !map.hasImage(ev.id)) addPattern(ev.id); });
+
+  // Dimension wechseln: nur Farben und Texturen tauschen, die Karte bleibt geladen
+  function applyDimension() {
+    for (const layer of buildLayers(PALETTES[state.dim])) {
+      for (const [key, value] of Object.entries(layer.paint ?? {})) {
+        if (!key.endsWith("pattern")) map.setPaintProperty(layer.id, key, value);
+      }
+    }
+    for (const [id, img] of Object.entries(PATTERNS[state.dim])) if (map.hasImage(id)) map.updateImage(id, img);
+  }
 
   // Genauigkeitskreis der GPS-Position, liegt über allen Kartenebenen
   let pendingAccuracy = null;
@@ -244,9 +287,14 @@ export function createMcMap({ container, labelsContainer, center, zoom, pixelSiz
   }
   container.classList.toggle("pixel", kind === "mc");
   // Stil-Umschaltungen erst anwenden, wenn beide Karten geladen sind
-  let loadedCount = 0, kindPending = kind !== "mc";
+  let loadedCount = 0, kindPending = kind !== "mc", dimPending = false;
   const ready = () => loadedCount === 2;
-  const onLoaded = () => { loadedCount++; if (ready() && kindPending) { kindPending = false; applyKind(); } };
+  const onLoaded = () => {
+    loadedCount++;
+    if (!ready()) return;
+    if (kindPending) { kindPending = false; applyKind(); }
+    if (dimPending) { dimPending = false; applyDimension(); }
+  };
   map.once("load", onLoaded);
   labels.once("load", onLoaded);
   // Die kompakte Quellenangabe startet aufgeklappt; zugeklappt verdeckt sie nichts
@@ -265,10 +313,15 @@ export function createMcMap({ container, labelsContainer, center, zoom, pixelSiz
       state.kind = kind;
       if (ready()) applyKind(); else kindPending = true;
     },
+    setDimension(dim) {
+      if (dim === state.dim) return;
+      state.dim = dim;
+      if (ready()) applyDimension(); else dimPending = true;
+    },
     setPixelSize(px) {
       state.px = px;
       if (state.kind === "mc") map.setPixelRatio(1 / px);
-      for (const id of Object.keys(PATTERNS)) {
+      for (const id of Object.keys(PATTERNS[state.dim])) {
         if (map.hasImage(id)) { map.removeImage(id); addPattern(id); }
       }
     },

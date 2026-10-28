@@ -83,6 +83,16 @@
   #f3 div { width: fit-content; max-width: 100%; background: var(--f3-bg); padding: 0 4px; }
   #f3 .gap { height: 6px; background: none; }
   #f3 .dim { color: #e0e0e0; }
+  #f3 .nether { color: #ff7a6a; }
+
+  /* Lila Portal-Wirbel beim Dimensionswechsel */
+  #portalFx {
+    position: absolute; inset: 0; z-index: 7; pointer-events: none; opacity: 0;
+    background: radial-gradient(circle, rgba(196, 140, 240, 0.1) 0%, rgba(138, 58, 216, 0.8) 75%);
+  }
+  #portalFx.on { animation: portal 0.9s ease-out; }
+  @keyframes portal { 0% { opacity: 0; } 30% { opacity: 1; } 100% { opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) { #portalFx.on { animation: none; } }
 
   /* Chat unten links, Nachrichten blenden aus */
   #chat {
@@ -162,6 +172,7 @@
   <div id="sky" hidden></div>
   <div id="labels" aria-hidden="true"></div>
   <canvas id="weather" aria-hidden="true" hidden></canvas>
+  <div id="portalFx" aria-hidden="true"></div>
   <div id="f3" aria-hidden="true"></div>
   <div id="chat" role="log" aria-live="polite"></div>
 </main>
@@ -208,6 +219,13 @@
       </div>
     </div>
     <div class="group">
+      <span class="label">Dimension</span>
+      <div class="row">
+        <button type="button" class="mc" data-dimension="overworld">Oberwelt</button>
+        <button type="button" class="mc" data-dimension="nether">Nether</button>
+      </div>
+    </div>
+    <div class="group">
       <span class="label">Pixel</span>
       <div class="row">
         <button type="button" class="mc" data-pixel="fein">Fein</button>
@@ -241,7 +259,7 @@
 </div>
 
 <script type="module">
-import { CONFIG, createConverter, facing, nether, parseCoords, formatCoords } from "./coords.js";
+import { CONFIG, createConverter, facing, nether, fromNether, parseCoords, formatCoords } from "./coords.js";
 import { createMcMap, PIXEL_SIZES } from "./mcmap.js";
 import { icon } from "./icons.js";
 import { biomeFor } from "./biome.js";
@@ -259,7 +277,7 @@ fillIcons();
 const state = { player: null, heading: null, target: null, biome: null };
 
 // ---------- Einstellungen, gespeichert im Browser ----------
-const settings = { kind: "mc", pixel: "mittel", sound: true, daynight: "real", weather: "real" };
+const settings = { kind: "mc", pixel: "mittel", sound: true, daynight: "real", weather: "real", dimension: "overworld" };
 try {
   Object.assign(settings, JSON.parse(localStorage.getItem("mc-settings") ?? "{}"));
   if (localStorage.getItem("mc-sound") === "off") settings.sound = false;
@@ -320,8 +338,24 @@ function chat(text, color = "") {
 const mc = createMcMap({
   container: $("map"), labelsContainer: $("labels"),
   center: [CONFIG.origin.lon, CONFIG.origin.lat], zoom: 15,
-  pixelSize: PIXEL_SIZES[settings.pixel], kind: settings.kind,
+  pixelSize: PIXEL_SIZES[settings.pixel], kind: settings.kind, dimension: settings.dimension,
 });
+
+// ---------- Dimension: intern rechnet die App immer in Oberwelt-Koordinaten ----------
+const inNether = () => settings.dimension === "nether";
+// Koordinaten so, wie sie in der aktuellen Dimension angezeigt, kopiert und geteilt werden
+function shown(c) {
+  if (!inNether()) return c;
+  const n = nether(c.x, c.z);
+  return { x: n.x, y: c.y ?? null, z: n.z };
+}
+// Eingegebene Koordinaten der aktuellen Dimension zurück in die Oberwelt
+function fromShown(c) {
+  if (!inNether()) return c;
+  const o = fromNether(c.x, c.z);
+  return { x: o.x, y: c.y ?? null, z: o.z };
+}
+const fmt = (c) => formatCoords(shown(c));
 const map = mc.map;
 
 // Zahnrad über dem Zoom, öffnet die Einstellungen
@@ -329,8 +363,10 @@ map.addControl({
   onAdd() {
     const el = document.createElement("div");
     el.className = "maplibregl-ctrl maplibregl-ctrl-group";
-    el.innerHTML = `<button type="button" class="gear" aria-label="Einstellungen" title="Einstellungen">${icon("gear")}</button>`;
-    el.querySelector("button").addEventListener("click", openSettings);
+    el.innerHTML = `<button type="button" class="gear" aria-label="Einstellungen" title="Einstellungen">${icon("gear")}</button>`
+      + `<button type="button" class="gear" id="portal" aria-label="Dimension wechseln" title="Nether / Oberwelt">${icon("portal")}</button>`;
+    el.querySelector(".gear").addEventListener("click", openSettings);
+    el.querySelector("#portal").addEventListener("click", () => setDimension(inNether() ? "overworld" : "nether"));
     return el;
   },
   onRemove() {},
@@ -349,7 +385,7 @@ let playerMarker, targetMarker;
 
 // ---------- Einstellungsdialog ----------
 function renderSettings() {
-  for (const [attr, value] of [["kind", settings.kind], ["pixel", settings.pixel], ["sound", settings.sound ? "on" : "off"], ["daynight", settings.daynight], ["weather", settings.weather]]) {
+  for (const [attr, value] of [["kind", settings.kind], ["pixel", settings.pixel], ["sound", settings.sound ? "on" : "off"], ["daynight", settings.daynight], ["weather", settings.weather], ["dimension", settings.dimension]]) {
     document.querySelectorAll(`[data-${attr}]`).forEach((b) => b.setAttribute("aria-pressed", String(b.dataset[attr] === value)));
   }
   document.querySelectorAll("[data-pixel]").forEach((b) => (b.disabled = settings.kind !== "mc"));
@@ -389,7 +425,8 @@ function updateSky() {
   const date = now();
   const elevation = sunElevation(date, CONFIG.origin.lat, CONFIG.origin.lon);
   state.sky = { elevation, ticks: mcTicks(date, CONFIG.origin.lon), phase: dayPhase(elevation) };
-  const tint = settings.daynight === "real" ? skyTint(elevation) : null;
+  // Im Nether gibt es keinen Himmel, nur einen roten Dunst
+  const tint = inNether() ? "rgb(255, 205, 190)" : settings.daynight === "real" ? skyTint(elevation) : null;
   $("sky").hidden = !tint;
   if (tint) $("sky").style.backgroundColor = tint;
   renderF3();
@@ -413,7 +450,8 @@ async function updateWeather() {
   applyWeather();
 }
 function applyWeather() {
-  weatherFx.set(settings.weather === "real" ? state.weather?.fx ?? null : null);
+  // Im Nether regnet es nicht
+  weatherFx.set(settings.weather === "real" && !inNether() ? state.weather?.fx ?? null : null);
   renderF3();
 }
 document.querySelectorAll("[data-weather]").forEach((b) => b.addEventListener("click", () => {
@@ -421,16 +459,63 @@ document.querySelectorAll("[data-weather]").forEach((b) => b.addEventListener("c
 }));
 setInterval(updateWeather, 15 * 60000);
 
+// ---------- Dimension wechseln: Portal-Knopf auf der Karte oder Einstellungen ----------
+// Selbst erzeugtes Portal-Rauschen: zwei verstimmte Sägezähne, die abwärts gleiten
+function portalSound() {
+  if (!settings.sound) return;
+  try {
+    audio ??= new AudioContext();
+    const t = audio.currentTime, g = audio.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.05, t + 0.15);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 1.1);
+    g.connect(audio.destination);
+    for (const detune of [0, 7]) {
+      const o = audio.createOscillator();
+      o.type = "sawtooth";
+      o.frequency.setValueAtTime(220 + detune, t);
+      o.frequency.exponentialRampToValueAtTime(70 + detune, t + 1.1);
+      o.connect(g); o.start(t); o.stop(t + 1.15);
+    }
+  } catch {}
+}
+function setDimension(dim, { quiet = false } = {}) {
+  settings.dimension = dim;
+  saveSettings();
+  mc.setDimension(dim);
+  state.biome = null;
+  updateBiome();
+  if (state.target) $("paste").value = fmt(state.target);
+  updateSky();
+  applyWeather();
+  renderTarget();
+  renderSettings();
+  if (quiet) return;
+  const fx = $("portalFx");
+  fx.classList.remove("on"); void fx.offsetWidth; fx.classList.add("on");
+  portalSound();
+  if (dim === "nether") chat("Du bist in den Nether gereist. Koordinaten jetzt geteilt durch 8.", "red");
+  else chat("Zurück in der Oberwelt.", "green");
+}
+document.querySelectorAll("[data-dimension]").forEach((b) => b.addEventListener("click", () => {
+  if (b.dataset.dimension !== settings.dimension) setDimension(b.dataset.dimension);
+}));
+
 // ---------- Anzeige ----------
 function renderF3() {
-  const lines = [`Münster 1:1 · Spawn: ${CONFIG.origin.name}`];
+  const lines = [`Münster 1:${inNether() ? 8 : 1} · Spawn: ${CONFIG.origin.name}`];
+  if (inNether()) lines.push('<span class="nether">Dimension: minecraft:the_nether</span>');
   const p = state.player;
   if (p) {
-    lines.push(`XYZ: ${p.x} / ${p.y ?? "~"} / ${p.z}`);
-    const n = nether(p.x, p.z);
-    lines.push(`Nether: ${n.x} / ${n.z}`);
+    const s = shown(p);
+    lines.push(`XYZ: ${s.x} / ${s.y ?? "~"} / ${s.z}`);
+    if (inNether()) lines.push(`Oberwelt: ${p.x} / ${p.z}`);
+    else {
+      const n = nether(p.x, p.z);
+      lines.push(`Nether: ${n.x} / ${n.z}`);
+    }
     lines.push(`Biome: ${state.biome ?? "~"}`);
-    const spawn = directionTo(p, { x: 0, z: 0 });
+    const spawn = directionTo(s, { x: 0, z: 0 });
     lines.push(spawn ? `Spawn: ${spawn.dist} Blöcke Richtung ${spawn.dir}` : "Spawn: hier!");
   } else {
     lines.push("XYZ: ~ / ~ / ~");
@@ -440,14 +525,14 @@ function renderF3() {
     lines.push(`Facing: ${f.name} (${f.towards}) (${f.yaw.toFixed(1)})`);
   }
   if (state.sky) lines.push(`Zeit: ${state.sky.ticks} ticks · ${state.sky.phase}`);
-  if (state.weather) lines.push(`Wetter: ${state.weather.label}${state.weather.temp != null ? ` · ${Math.round(state.weather.temp)} °C` : ""}`);
+  if (state.weather && !inNether()) lines.push(`Wetter: ${state.weather.label}${state.weather.temp != null ? ` · ${Math.round(state.weather.temp)} °C` : ""}`);
   if (p) {
     const acc = [`GPS ±${Math.round(p.accuracy)} m`];
     if (p.altitudeAccuracy != null) acc.push(`Höhe ±${Math.round(p.altitudeAccuracy)} m`);
     lines.push("", `<span class="dim">${acc.join(" · ")}</span>`);
   }
   $("f3").innerHTML = lines.map((l) => (l === "" ? '<div class="gap"></div>' : `<div>${l}</div>`)).join("");
-  $("meCoords").textContent = p ? formatCoords(p) : "~ ~ ~";
+  $("meCoords").textContent = p ? fmt(p) : "~ ~ ~";
 }
 
 // Entfernung und Himmelsrichtung von a nach b; null, wenn beide auf demselben Block liegen
@@ -461,7 +546,7 @@ function directionTo(a, b) {
 
 function distanceText(t) {
   if (!state.player) return "";
-  const d = directionTo(state.player, t);
+  const d = directionTo(shown(state.player), shown(t));
   return d ? `${d.dist} Blöcke ${d.dir}` : "Du bist da!";
 }
 
@@ -470,7 +555,7 @@ function updateBiome() {
   if (!state.player) return;
   const hits = mc.areasAt([state.player.lon, state.player.lat]);
   if (!hits) return;
-  const biome = biomeFor(hits);
+  const biome = biomeFor(hits, settings.dimension);
   if (biome !== state.biome) { state.biome = biome; renderF3(); }
 }
 map.on("idle", updateBiome);
@@ -481,9 +566,10 @@ function renderTarget() {
   if (!t) return;
   const n = nether(t.x, t.z);
   const lat = t.lat.toFixed(6), lon = t.lon.toFixed(6);
-  const parts = [distanceText(t), `Nether ${n.x} / ${n.z}`].filter(Boolean).join(" · ");
+  const other = inNether() ? `Oberwelt ${t.x} / ${t.z}` : `Nether ${n.x} / ${n.z}`;
+  const parts = [distanceText(t), other].filter(Boolean).join(" · ");
   $("targetInfo").innerHTML = `${parts}<br>`
-    + `<a href="https://maps.apple.com/?ll=${lat},${lon}&q=${encodeURIComponent(formatCoords(t))}" target="_blank" rel="noopener">Apple</a> · `
+    + `<a href="https://maps.apple.com/?ll=${lat},${lon}&q=${encodeURIComponent(fmt(t))}" target="_blank" rel="noopener">Apple</a> · `
     + `<a href="https://www.google.com/maps/search/?api=1&query=${lat},${lon}" target="_blank" rel="noopener">Google Maps</a>`;
 }
 
@@ -508,21 +594,23 @@ async function copyText(text) {
 }
 
 async function copyCoords(c) {
-  const text = formatCoords(c);
+  const text = fmt(c);
   if (await copyText(text)) chat(`Koordinaten kopiert: ${text}`, "green");
   else chat("Kopieren hat nicht geklappt.", "red");
 }
 
 function shareUrl(c) {
+  const s = shown(c);
   const u = new URL(location.pathname, location.origin);
-  u.searchParams.set("x", c.x);
-  if (c.y != null) u.searchParams.set("y", c.y);
-  u.searchParams.set("z", c.z);
+  u.searchParams.set("x", s.x);
+  if (s.y != null) u.searchParams.set("y", s.y);
+  u.searchParams.set("z", s.z);
+  if (inNether()) u.searchParams.set("dim", "nether");
   return u.toString();
 }
 
 async function shareCoords(c, intro) {
-  const text = `${intro} ${formatCoords(c)} in Münster ⛏`;
+  const text = `${intro} ${fmt(c)} ${inNether() ? "im Nether unter" : "in"} Münster ⛏`;
   const url = shareUrl(c);
   if (navigator.share) {
     try { await navigator.share({ title: "Münster in Minecraft-Koordinaten", text, url }); }
@@ -544,7 +632,7 @@ function applyInput({ pan, announce }) {
     if (announce && $("paste").value.trim()) chat("Darin stecken keine Koordinaten. Beispiel: 154 64 68", "red");
     return;
   }
-  setTarget(c, { pan });
+  setTarget(fromShown(c), { pan });
   if (announce) chat(`Ziel gesetzt: ${formatCoords(c)}`, "yellow");
 }
 
@@ -573,7 +661,7 @@ if (navigator.clipboard?.readText) {
 map.on("click", (ev) => {
   const p = conv.toMinecraft(ev.lngLat.lat, ev.lngLat.lng);
   const c = { x: p.x, y: null, z: p.z };
-  $("paste").value = formatCoords(c);
+  $("paste").value = fmt(c);
   setTarget(c);
 });
 
@@ -592,7 +680,7 @@ function onPosition(pos) {
     $("gps").hidden = true;
     $("copyMe").hidden = false;
     $("shareMe").hidden = false;
-    chat(`Position gefunden: ${formatCoords(state.player)}`, "green");
+    chat(`Position gefunden: ${fmt(state.player)}`, "green");
   }
   renderF3();
   renderTarget();
@@ -646,10 +734,12 @@ const params = new URLSearchParams(location.search);
 const shared = params.has("x") && params.has("z")
   ? parseCoords(["x", "y", "z"].filter((k) => params.has(k)).map((k) => `${k}=${params.get(k)}`).join(" "))
   : null;
+// Ein Link aus dem Nether öffnet die App im Nether, sonst bleibt die gespeicherte Dimension
+if (shared && params.get("dim") === "nether" && !inNether()) setDimension("nether", { quiet: true });
 if (shared) {
   $("paste").value = formatCoords(shared);
-  setTarget(shared, { pan: true });
-  chat(`Geteilter Punkt: ${formatCoords(shared)}`, "yellow");
+  setTarget(fromShown(shared), { pan: true });
+  chat(`Geteilter Punkt${inNether() ? " im Nether" : ""}: ${formatCoords(shared)}`, "yellow");
   chat("Tippe auf GPS starten, um die Entfernung zu sehen.", "gray");
 } else {
   chat("Willkommen in Münster! Der Spawn ist am Dom.", "yellow");

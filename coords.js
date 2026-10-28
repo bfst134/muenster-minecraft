@@ -67,6 +67,11 @@ export function nether(x, z) {
   return { x: Math.floor(x / 8), z: Math.floor(z / 8) };
 }
 
+// Zurück in die Oberwelt: Mitte des 8×8-Bereichs, den ein Netherblock abdeckt
+export function fromNether(x, z) {
+  return { x: x * 8 + 4, z: z * 8 + 4 };
+}
+
 // Weltgrenze in Minecraft Java.
 const WORLD_BORDER = 30_000_000;
 

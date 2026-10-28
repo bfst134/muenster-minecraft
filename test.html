@@ -14,7 +14,7 @@
 <h1 id="summary">Tests laufen …</h1>
 <ul id="out"></ul>
 <script type="module">
-import { CONFIG, createConverter, facing, nether, parseCoords, formatCoords } from "./coords.js";
+import { CONFIG, createConverter, facing, nether, fromNether, parseCoords, formatCoords } from "./coords.js";
 import { pointInFeature, biomeFor } from "./biome.js";
 import { sunElevation, mcTicks, dayPhase, skyTint } from "./sky.js";
 import { describeWeather } from "./weather.js";
@@ -104,6 +104,14 @@ test("Facing wie im F3-Screen", () => {
 test("Nether-Koordinaten = Oberwelt / 8, abgerundet", () => {
   const a = nether(15, 8); eq(a.x, 1); eq(a.z, 1);
   const b = nether(-1, -9); eq(b.x, -1); eq(b.z, -2);
+});
+
+test("Nether → Oberwelt landet im passenden 8×8-Bereich", () => {
+  for (const [x, z] of [[0, 0], [19, 8], [-173, 161], [-1, -2]]) {
+    const o = fromNether(x, z);
+    const back = nether(o.x, o.z);
+    eq(back.x, x, `X ${x}`); eq(back.z, z, `Z ${z}`);
+  }
 });
 
 test("Eingefügte Koordinaten werden in vielen Formaten erkannt", () => {
