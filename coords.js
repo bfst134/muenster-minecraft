@@ -2,6 +2,9 @@
 // Projektion: WGS84 (EPSG:4326) → ETRS89 / UTM 32N (EPSG:25832).
 // Minecraft Java: X = Ost (+), Z = Süd (+), also Nord = −Z.
 
+// App-Version = die ?v=… an den Modul-Importen; so zeigt die App genau die Version, die geladen ist
+export const VERSION = new URL(import.meta.url).searchParams.get("v") ?? "dev";
+
 export const CONFIG = {
   // Ursprung (0, ~, 0). Koordinaten: Gebäudemittelpunkt laut OpenStreetMap (way 40967526).
   origin: { name: "St.-Paulus-Dom", lat: 51.9631113, lon: 7.6258077 },
