@@ -339,14 +339,14 @@
 </div>
 
 <script type="module">
-import { CONFIG, createConverter, facing, nether, fromNether, parseCoords, formatCoords } from "./coords.js?v=20261028";
-import { createMcMap, PIXEL_SIZES } from "./mcmap.js?v=20261028";
-import { icon } from "./icons.js?v=20261028";
-import { biomeFor } from "./biome.js?v=20261028";
-import { sunElevation, mcTicks, dayPhase, skyTint } from "./sky.js?v=20261028";
-import { describeWeather, fetchWeather, WeatherFx } from "./weather.js?v=20261028";
-import { COLORS, loadWaypoints, saveWaypoints, addWaypoint, removeWaypoint } from "./waypoints.js?v=20261028";
-import { ACHIEVEMENTS, placesReached, loadUnlocked, saveUnlocked } from "./achievements.js?v=20261028";
+import { CONFIG, createConverter, facing, nether, fromNether, parseCoords, formatCoords } from "./coords.js?v=20261028b";
+import { createMcMap, PIXEL_SIZES } from "./mcmap.js?v=20261028b";
+import { icon } from "./icons.js?v=20261028b";
+import { biomeFor } from "./biome.js?v=20261028b";
+import { sunElevation, mcTicks, dayPhase, skyTint } from "./sky.js?v=20261028b";
+import { describeWeather, fetchWeather, WeatherFx } from "./weather.js?v=20261028b";
+import { COLORS, loadWaypoints, saveWaypoints, addWaypoint, removeWaypoint } from "./waypoints.js?v=20261028b";
+import { ACHIEVEMENTS, placesReached, loadUnlocked, saveUnlocked } from "./achievements.js?v=20261028b";
 
 const conv = createConverter(proj4);
 const $ = (id) => document.getElementById(id);
@@ -526,7 +526,8 @@ const weatherFx = new WeatherFx($("weather"));
 async function updateWeather() {
   const preview = new URLSearchParams(location.search).get("wetter");
   try {
-    if (preview) state.weather = { label: `Vorschau (${preview})`, fx: preview, temp: null };
+    const previewLabels = { drizzle: "Nieselregen", rain: "Regen", "storm-rain": "Starker Regen", storm: "Gewitter", snow: "Schnee", fog: "Nebel" };
+    if (preview) state.weather = { label: `${previewLabels[preview] ?? preview} (Vorschau)`, fx: preview, temp: null };
     else {
       const w = await fetchWeather(CONFIG.origin.lat, CONFIG.origin.lon);
       state.weather = { ...describeWeather(w.code), temp: w.temp };

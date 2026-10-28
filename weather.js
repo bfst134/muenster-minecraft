@@ -55,6 +55,8 @@ export class WeatherFx {
     this.canvas.width = this.w;
     this.canvas.height = this.h;
     this.spawn();
+    // Größe setzen leert die Canvas; stehende Effekte wie Nebel neu zeichnen
+    this.schedule();
   }
 
   set(fx) {
@@ -66,7 +68,7 @@ export class WeatherFx {
   }
 
   spawn() {
-    const density = { drizzle: 0.004, rain: 0.01, "storm-rain": 0.02, storm: 0.02, snow: 0.006 }[this.fx] ?? 0;
+    const density = { drizzle: 0.004, rain: 0.01, "storm-rain": 0.02, storm: 0.02, snow: 0.012 }[this.fx] ?? 0;
     const n = this.reduced ? 0 : Math.round(this.w * this.h * density);
     this.particles = Array.from({ length: n }, () => this.particle(true));
   }
@@ -77,6 +79,8 @@ export class WeatherFx {
       x: Math.random() * this.w,
       y: anywhere ? Math.random() * this.h : -4,
       v: snow ? 0.15 + Math.random() * 0.25 : 1.6 + Math.random() * 1.2,
+      // Schneeflocken 1×1 oder 2×2 Pixel, Regentropfen 1 Pixel breit und 2–4 lang
+      size: snow ? 1 + Math.floor(Math.random() * 2) : 1,
       len: snow ? 1 : 2 + Math.floor(Math.random() * 3),
       drift: snow ? (Math.random() - 0.5) * 0.3 : 0.25,
     };
@@ -102,7 +106,7 @@ export class WeatherFx {
       p.y += p.v;
       p.x += p.drift;
       if (p.y > h || p.x > w || p.x < -2) Object.assign(p, this.particle(false));
-      ctx.fillRect(Math.round(p.x), Math.round(p.y), 1, p.len);
+      ctx.fillRect(Math.round(p.x), Math.round(p.y), p.size, snow ? p.size : p.len);
     }
     // Gewitter: ab und zu ein Blitz
     if (fx === "storm" && !this.reduced) {
