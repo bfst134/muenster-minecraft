@@ -15,6 +15,7 @@
 <ul id="out"></ul>
 <script type="module">
 import { CONFIG, createConverter, facing, nether, parseCoords, formatCoords } from "./coords.js";
+import { pointInFeature, biomeFor } from "./biome.js";
 
 const results = [];
 function test(name, fn) {
@@ -133,6 +134,28 @@ test("Kopierformat passt zu /tp", () => {
   eq(formatCoords({ x: -3, y: null, z: 0 }), "-3 ~ 0");
   const back = parseCoords(formatCoords({ x: -3, y: null, z: 176 }));
   eq(back.x, -3); eq(back.y, null); eq(back.z, 176);
+});
+
+test("Punkt-in-Polygon mit Loch und Multipolygon", () => {
+  const square = { type: "Polygon", coordinates: [[[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]], [[4, 4], [6, 4], [6, 6], [4, 6], [4, 4]]] };
+  eq(pointInFeature([2, 2], square), true, "innen");
+  eq(pointInFeature([5, 5], square), false, "im Loch");
+  eq(pointInFeature([11, 5], square), false, "außen");
+  const multi = { type: "MultiPolygon", coordinates: [square.coordinates, [[[20, 20], [30, 20], [30, 30], [20, 30], [20, 20]]]] };
+  eq(pointInFeature([25, 25], multi), true, "zweites Polygon");
+  eq(pointInFeature([5, 5], { type: "LineString", coordinates: [] }), false, "keine Fläche");
+});
+
+test("Biome aus Kartenflächen", () => {
+  eq(biomeFor({ water: "river" }), "minecraft:river");
+  eq(biomeFor({ water: "lake", landuse: "residential" }), "minecraft:ocean", "Wasser schlägt Wohngebiet");
+  eq(biomeFor({ landcover: "wood", park: true }), "minecraft:forest");
+  eq(biomeFor({ park: true }), "minecraft:meadow");
+  eq(biomeFor({ landuse: "cemetery" }), "minecraft:dark_forest");
+  eq(biomeFor({ landuse: "residential" }), "minecraft:plains");
+  eq(biomeFor({}), "minecraft:plains");
+  eq(biomeFor({ water: "lake" }, "nether"), "minecraft:basalt_deltas");
+  eq(biomeFor({}, "nether"), "minecraft:nether_wastes");
 });
 
 const failed = results.filter((r) => !r.ok);

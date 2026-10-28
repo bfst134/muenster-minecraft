@@ -2,6 +2,8 @@
 // Die Karte wird absichtlich in niedriger Auflösung gezeichnet und ohne Glättung hochskaliert (Pixel-Look).
 // Beschriftungen liegen als zweite, scharfe Karte darüber; sie trägt auch die Marker.
 
+import { pointInFeature } from "./biome.js";
+
 // Pixelgröße in CSS-Pixeln je Kartenpixel
 export const PIXEL_SIZES = { fein: 1.5, mittel: 2, grob: 3 };
 
@@ -153,7 +155,12 @@ const BASE_STYLE = {
     osm: { type: "raster", tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"], tileSize: 256, maxzoom: 19,
       attribution: '© <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a>' },
   },
-  layers: [...MC_LAYERS, { id: "osm", type: "raster", source: "osm", layout: { visibility: "none" } }],
+  layers: [
+    ...MC_LAYERS,
+    { id: "osm", type: "raster", source: "osm", layout: { visibility: "none" } },
+    // Unsichtbar, aber immer aktiv: hält die Vektordaten auch bei der normalen Karte geladen (fürs Biom)
+    { id: "probe", type: "fill", source: "omt", "source-layer": "water", paint: { "fill-opacity": 0 } },
+  ],
 };
 
 // ---------- Beschriftungen: weiß mit dunklem Rand wie Namensschilder ----------
@@ -264,6 +271,20 @@ export function createMcMap({ container, labelsContainer, center, zoom, pixelSiz
       for (const id of Object.keys(PATTERNS)) {
         if (map.hasImage(id)) { map.removeImage(id); addPattern(id); }
       }
+    },
+    // Klassen der Flächen am Punkt, aus den geladenen Kacheln; null, solange noch nichts geladen ist
+    areasAt(lngLat) {
+      if (!map.getSource("omt")) return null;
+      const hits = {};
+      let any = false;
+      for (const layer of ["water", "landcover", "landuse", "park"]) {
+        let features;
+        try { features = map.querySourceFeatures("omt", { sourceLayer: layer }); } catch { return null; }
+        if (features.length) any = true;
+        const hit = features.find((f) => (layer !== "water" || f.properties.brunnel !== "tunnel") && pointInFeature(lngLat, f.geometry));
+        if (hit) hits[layer] = layer === "park" ? true : hit.properties.class ?? true;
+      }
+      return any ? hits : null;
     },
     metersPerCssPixel() {
       return (156543.03 * Math.cos((map.getCenter().lat * Math.PI) / 180)) / 2 ** map.getZoom();

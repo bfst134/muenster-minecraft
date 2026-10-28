@@ -5,6 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#5b8731">
 <title>Münster Koordinaten</title>
+<!-- Homescreen: startet im Vollbild mit eigenem Icon -->
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Münster MC">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;600&family=VT323&display=swap">
@@ -51,6 +59,8 @@
   .maplibregl-ctrl-top-right, .maplibregl-ctrl-bottom-right { z-index: 3; }
   .maplibregl-ctrl-attrib { font: 12px var(--pixel); }
   .maplibregl-ctrl-top-right .maplibregl-ctrl { margin: 8px 8px 0 0; }
+  /* Im Vollbild vom Homescreen nicht unter die Statusleiste rutschen */
+  .maplibregl-ctrl-top-right { top: env(safe-area-inset-top); }
 
   /* Bedienelemente auf der Karte als Steinknöpfe */
   .maplibregl-ctrl-group { border-radius: 0; border: 2px solid #000; box-shadow: none; background: var(--btn); }
@@ -134,6 +144,12 @@
   .block { width: 18px; height: 18px; border: 2px solid #000; }
   .block.spawn { background: #f5c842; box-shadow: inset 2px 2px 0 #fff3a8, inset -2px -2px 0 #b8860b; }
   .block.me { background: #3fc6d6; box-shadow: inset 2px 2px 0 #b5f3fa, inset -2px -2px 0 #1d7e8a; }
+  /* Blickrichtung: Pfeil kreist um den eigenen Block */
+  .me-wrap { position: relative; width: 18px; height: 18px; }
+  .me-wrap .heading {
+    position: absolute; left: 50%; top: 50%; width: 46px; height: 46px; margin: -23px 0 0 -23px;
+    display: flex; justify-content: center; pointer-events: none; transform: rotate(var(--heading, 0deg));
+  }
   .block.target { background: #d33a2a; box-shadow: inset 2px 2px 0 #ff9a8a, inset -2px -2px 0 #7a1a10; }
 </style>
 </head>
@@ -209,6 +225,7 @@
 import { CONFIG, createConverter, facing, nether, parseCoords, formatCoords } from "./coords.js";
 import { createMcMap, PIXEL_SIZES } from "./mcmap.js";
 import { icon } from "./icons.js";
+import { biomeFor } from "./biome.js";
 
 const conv = createConverter(proj4);
 const $ = (id) => document.getElementById(id);
@@ -218,7 +235,7 @@ function fillIcons(root = document) {
   root.querySelectorAll("[data-icon]").forEach((b) => b.insertAdjacentHTML("afterbegin", icon(b.dataset.icon)));
 }
 fillIcons();
-const state = { player: null, heading: null, target: null };
+const state = { player: null, heading: null, target: null, biome: null };
 
 // ---------- Einstellungen, gespeichert im Browser ----------
 const settings = { kind: "mc", pixel: "mittel", sound: true };
@@ -300,6 +317,12 @@ map.addControl({
 map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
 
 const blockEl = (kind, title) => Object.assign(document.createElement("div"), { className: `block ${kind}`, title: title ?? "" });
+// Eigener Block mit Pfeil für die Blickrichtung; der Pfeil erscheint, sobald der Kompass Werte liefert
+function playerEl() {
+  const el = Object.assign(document.createElement("div"), { className: "me-wrap", title: "Du" });
+  el.innerHTML = `<div class="heading" hidden>${icon("arrow", { size: 14 })}</div><div class="block me"></div>`;
+  return el;
+}
 mc.addMarker(blockEl("spawn", `Spawn · ${CONFIG.origin.name} · 0 ~ 0`), [CONFIG.origin.lon, CONFIG.origin.lat]);
 let playerMarker, targetMarker;
 
@@ -337,6 +360,9 @@ function renderF3() {
     lines.push(`XYZ: ${p.x} / ${p.y ?? "~"} / ${p.z}`);
     const n = nether(p.x, p.z);
     lines.push(`Nether: ${n.x} / ${n.z}`);
+    lines.push(`Biome: ${state.biome ?? "~"}`);
+    const spawn = directionTo(p, { x: 0, z: 0 });
+    lines.push(spawn ? `Spawn: ${spawn.dist} Blöcke Richtung ${spawn.dir}` : "Spawn: hier!");
   } else {
     lines.push("XYZ: ~ / ~ / ~");
   }
@@ -353,15 +379,30 @@ function renderF3() {
   $("meCoords").textContent = p ? formatCoords(p) : "~ ~ ~";
 }
 
+// Entfernung und Himmelsrichtung von a nach b; null, wenn beide auf demselben Block liegen
+function directionTo(a, b) {
+  const dx = b.x - a.x, dz = b.z - a.z;
+  const dist = Math.round(Math.hypot(dx, dz));
+  if (dist === 0) return null;
+  // Richtung als Kompasskurs: atan2(Ost, Nord), Nord = −Z
+  return { dist, dir: facing((Math.atan2(dx, -dz) * 180) / Math.PI).name };
+}
+
 function distanceText(t) {
   if (!state.player) return "";
-  const dx = t.x - state.player.x, dz = t.z - state.player.z;
-  const dist = Math.round(Math.hypot(dx, dz));
-  if (dist === 0) return "Du bist da!";
-  // Richtung als Kompasskurs: atan2(Ost, Nord), Nord = −Z
-  const dir = facing((Math.atan2(dx, -dz) * 180) / Math.PI);
-  return `${dist} Blöcke Richtung ${dir.name}`;
+  const d = directionTo(state.player, t);
+  return d ? `${d.dist} Blöcke ${d.dir}` : "Du bist da!";
 }
+
+// Biom an der eigenen Position; braucht geladene Kartenkacheln rund um die Position
+function updateBiome() {
+  if (!state.player) return;
+  const hits = mc.areasAt([state.player.lon, state.player.lat]);
+  if (!hits) return;
+  const biome = biomeFor(hits);
+  if (biome !== state.biome) { state.biome = biome; renderF3(); }
+}
+map.on("idle", updateBiome);
 
 function renderTarget() {
   const t = state.target;
@@ -471,9 +512,10 @@ function onPosition(pos) {
   const p = conv.toMinecraft(lat, lon);
   const first = !state.player;
   state.player = { ...p, y: conv.yFromEllipsoidal(altitude), lat, lon, accuracy, altitudeAccuracy };
-  if (!playerMarker) playerMarker = mc.addMarker(blockEl("me", "Du"), [lon, lat]);
+  if (!playerMarker) playerMarker = mc.addMarker(playerEl(), [lon, lat]);
   else playerMarker.setLngLat([lon, lat]);
   mc.setAccuracy(lat, lon, accuracy);
+  updateBiome();
   if (first) {
     if (!state.target) map.easeTo({ center: [lon, lat], zoom: 17 });
     $("gps").hidden = true;
@@ -499,6 +541,11 @@ function onOrientation(ev) {
   if (heading == null) return;
   heading += screen.orientation?.angle ?? 0;
   state.heading = ((heading % 360) + 360) % 360;
+  const arrow = playerMarker?.getElement().querySelector(".heading");
+  if (arrow) {
+    arrow.hidden = false;
+    arrow.style.setProperty("--heading", `${state.heading}deg`);
+  }
   renderF3();
 }
 
