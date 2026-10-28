@@ -8,8 +8,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;600&family=VT323&display=swap">
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.11.0/proj4.js"></script>
 <style>
   :root {
@@ -39,16 +39,33 @@
     display: flex; flex-direction: column;
     -webkit-tap-highlight-color: transparent;
   }
-  .shadow, button, .slot, #f3, #chat { text-shadow: 2px 2px 0 var(--shadow); }
+  .shadow, button, .slot, #f3, #chat, #settings { text-shadow: 2px 2px 0 var(--shadow); }
 
   #stage { position: relative; flex: 1; min-height: 0; }
-  #map { position: absolute; inset: 0; background: #7a9a5a; }
-  .leaflet-container { font-family: var(--pixel); }
+  #map, #labels { position: absolute; inset: 0; }
+  #map { background: #7fb238; }
+  /* Beschriftungen und Marker liegen als zweite, scharfe Karte darüber und fangen keine Berührungen ab */
+  #labels { pointer-events: none; z-index: 1; }
+  /* Pixel-Look: Karte in niedriger Auflösung zeichnen, ohne Glättung hochskalieren */
+  #map.pixel .maplibregl-canvas { image-rendering: pixelated; image-rendering: crisp-edges; }
+  .maplibregl-ctrl-top-right, .maplibregl-ctrl-bottom-right { z-index: 3; }
+  .maplibregl-ctrl-attrib { font: 12px var(--pixel); }
+  .maplibregl-ctrl-top-right .maplibregl-ctrl { margin: 8px 8px 0 0; }
+
+  /* Bedienelemente auf der Karte als Steinknöpfe */
+  .maplibregl-ctrl-group { border-radius: 0; border: 2px solid #000; box-shadow: none; background: var(--btn); }
+  .maplibregl-ctrl-group button {
+    width: 36px; height: 36px; background-color: var(--btn); border-radius: 0;
+    box-shadow: inset 2px 2px 0 var(--btn-hi), inset -2px -3px 0 var(--btn-lo);
+  }
+  .maplibregl-ctrl-group button + button { border-top: 2px solid #000; }
+  .maplibregl-ctrl-group button .maplibregl-ctrl-icon { filter: invert(1); }
+  .maplibregl-ctrl-group button.gear { display: grid; place-items: center; padding: 0; }
 
   /* F3-Overlay: graue Hinterlegung pro Zeile wie im Spiel */
   #f3 {
     position: absolute; top: max(8px, env(safe-area-inset-top)); left: 8px; right: 56px;
-    z-index: 1000; pointer-events: none; font: 19px/1.15 var(--digits);
+    z-index: 4; pointer-events: none; font: 19px/1.15 var(--digits);
   }
   #f3 div { width: fit-content; max-width: 100%; background: var(--f3-bg); padding: 0 4px; }
   #f3 .gap { height: 6px; background: none; }
@@ -56,8 +73,8 @@
 
   /* Chat unten links, Nachrichten blenden aus */
   #chat {
-    position: absolute; left: 8px; right: 8px; bottom: 26px; z-index: 1000;
-    display: flex; flex-direction: column; align-items: flex-start; gap: 0;
+    position: absolute; left: 8px; right: 48px; bottom: 8px; z-index: 4;
+    display: flex; flex-direction: column; align-items: flex-start;
     pointer-events: none; font: 19px/1.15 var(--digits);
   }
   #chat div {
@@ -82,16 +99,16 @@
   .sub a { color: var(--aqua); }
   .row { display: flex; gap: 8px; align-items: stretch; flex-wrap: wrap; }
 
-  button {
+  button.mc {
     font: 600 16px var(--pixel); color: var(--text); cursor: pointer;
     background: var(--btn); border: 2px solid #000; border-radius: 0;
     box-shadow: inset 2px 2px 0 var(--btn-hi), inset -2px -3px 0 var(--btn-lo);
     padding: 8px 14px; min-height: 42px;
   }
-  button:hover, button:focus-visible { background: var(--btn-hover); outline: none; }
-  button:active { box-shadow: inset -2px -2px 0 var(--btn-hi), inset 2px 3px 0 var(--btn-lo); }
-  button:disabled { background: #2c2c2c; color: #a0a0a0; box-shadow: none; cursor: default; }
-  button.icon { padding: 8px 10px; min-width: 42px; }
+  button.mc:hover, button.mc:focus-visible { background: var(--btn-hover); outline: none; }
+  button.mc:active { box-shadow: inset -2px -2px 0 var(--btn-hi), inset 2px 3px 0 var(--btn-lo); }
+  button.mc:disabled { background: #2c2c2c; color: #a0a0a0; box-shadow: none; cursor: default; }
+  button.mc[aria-pressed="true"] { background: #3d8a26; box-shadow: inset 2px 2px 0 #7fd45a, inset -2px -3px 0 #24561a; }
   input {
     flex: 1; min-width: 0; font: 22px var(--digits); color: var(--text);
     background: #000; border: 2px solid #a0a0a0; border-radius: 0; padding: 8px;
@@ -99,8 +116,19 @@
   input::placeholder { color: #707070; }
   input:focus { outline: none; border-color: #fff; }
 
-  /* Blockige Kartenmarker */
-  .block { width: 18px; height: 18px; border: 2px solid #000; image-rendering: pixelated; }
+  /* Einstellungen: abgedunkelter Hintergrund wie das Optionsmenü im Spiel */
+  #settings {
+    position: fixed; inset: 0; z-index: 10; background: rgba(16, 16, 16, 0.72);
+    display: grid; place-items: center; padding: 16px;
+  }
+  #settings .box { width: min(100%, 360px); display: grid; gap: 14px; }
+  #settings h2 { margin: 0; text-align: center; font: 600 22px var(--pixel); }
+  #settings .group { display: grid; gap: 6px; }
+  #settings .group .row button { flex: 1; }
+  #settings .done { width: 100%; }
+
+  /* Blockige Marker */
+  .block { width: 18px; height: 18px; border: 2px solid #000; }
   .block.spawn { background: #f5c842; box-shadow: inset 2px 2px 0 #fff3a8, inset -2px -2px 0 #b8860b; }
   .block.me { background: #3fc6d6; box-shadow: inset 2px 2px 0 #b5f3fa, inset -2px -2px 0 #1d7e8a; }
   .block.target { background: #d33a2a; box-shadow: inset 2px 2px 0 #ff9a8a, inset -2px -2px 0 #7a1a10; }
@@ -109,6 +137,7 @@
 <body>
 <main id="stage">
   <div id="map" aria-label="Karte von Münster"></div>
+  <div id="labels" aria-hidden="true"></div>
   <div id="f3" aria-hidden="true"></div>
   <div id="chat" role="log" aria-live="polite"></div>
 </main>
@@ -120,10 +149,9 @@
       <span id="meCoords" class="coords">~ ~ ~</span>
     </div>
     <div class="row">
-      <button id="gps" type="button">GPS starten</button>
-      <button id="copyMe" type="button" hidden>Kopieren</button>
-      <button id="shareMe" type="button" hidden>Teilen</button>
-      <button id="sound" type="button" class="icon" aria-label="Ton an/aus">♪</button>
+      <button id="gps" type="button" class="mc">GPS starten</button>
+      <button id="copyMe" type="button" class="mc" hidden>Kopieren</button>
+      <button id="shareMe" type="button" class="mc" hidden>Teilen</button>
     </div>
   </div>
 
@@ -134,24 +162,63 @@
     </div>
     <div class="row">
       <input id="paste" placeholder="Koordinaten einfügen …" enterkeyhint="go" aria-label="Koordinaten">
-      <button id="pasteBtn" type="button" hidden>Einfügen</button>
+      <button id="pasteBtn" type="button" class="mc" hidden>Einfügen</button>
     </div>
     <div id="targetInfo" class="sub">Oder tippe auf die Karte.</div>
     <div id="targetBtns" class="row" hidden>
-      <button id="copyTarget" type="button">Kopieren</button>
-      <button id="shareTarget" type="button">Teilen</button>
+      <button id="copyTarget" type="button" class="mc">Kopieren</button>
+      <button id="shareTarget" type="button" class="mc">Teilen</button>
     </div>
   </form>
 </section>
 
+<div id="settings" role="dialog" aria-modal="true" aria-labelledby="settingsTitle" hidden>
+  <div class="box">
+    <h2 id="settingsTitle">Einstellungen</h2>
+    <div class="group">
+      <span class="label">Karte</span>
+      <div class="row">
+        <button type="button" class="mc" data-kind="mc">Minecraft</button>
+        <button type="button" class="mc" data-kind="normal">Normal</button>
+      </div>
+    </div>
+    <div class="group">
+      <span class="label">Pixel</span>
+      <div class="row">
+        <button type="button" class="mc" data-pixel="fein">Fein</button>
+        <button type="button" class="mc" data-pixel="mittel">Mittel</button>
+        <button type="button" class="mc" data-pixel="grob">Grob</button>
+      </div>
+    </div>
+    <div class="group">
+      <span class="label">Ton</span>
+      <div class="row">
+        <button type="button" class="mc" data-sound="on">An</button>
+        <button type="button" class="mc" data-sound="off">Aus</button>
+      </div>
+    </div>
+    <button type="button" class="mc done" id="settingsDone">Fertig</button>
+  </div>
+</div>
+
 <script type="module">
 import { CONFIG, createConverter, facing, nether, parseCoords, formatCoords } from "./coords.js";
+import { createMcMap, PIXEL_SIZES } from "./mcmap.js";
 
 const conv = createConverter(proj4);
 const $ = (id) => document.getElementById(id);
-const state = { player: null, heading: null, target: null, sound: true };
+const state = { player: null, heading: null, target: null };
 
-try { state.sound = localStorage.getItem("mc-sound") !== "off"; } catch {}
+// ---------- Einstellungen, gespeichert im Browser ----------
+const settings = { kind: "mc", pixel: "mittel", sound: true };
+try {
+  Object.assign(settings, JSON.parse(localStorage.getItem("mc-settings") ?? "{}"));
+  if (localStorage.getItem("mc-sound") === "off") settings.sound = false;
+} catch {}
+if (!(settings.pixel in PIXEL_SIZES)) settings.pixel = "mittel";
+function saveSettings() {
+  try { localStorage.setItem("mc-settings", JSON.stringify(settings)); } catch {}
+}
 
 // ---------- Texturen: Erde und Gras als Pixelraster, jeder Pixel 4×4 ----------
 function rng(seed) {
@@ -162,9 +229,7 @@ function texture(w, h, pick, seed) {
   c.width = w * s; c.height = h * s;
   const ctx = c.getContext("2d"), r = rng(seed);
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
-    const col = pick(x, y, r);
-    if (!col) continue;
-    ctx.fillStyle = col; ctx.fillRect(x * s, y * s, s, s);
+    ctx.fillStyle = pick(x, y, r); ctx.fillRect(x * s, y * s, s, s);
   }
   return c.toDataURL();
 }
@@ -180,7 +245,7 @@ $("panel").style.backgroundImage = `url(${grassTex}), url(${dirtTex})`;
 // ---------- Ton: kurzes, selbst erzeugtes Klicken ----------
 let audio;
 function click() {
-  if (!state.sound) return;
+  if (!settings.sound) return;
   try {
     audio ??= new AudioContext();
     const o = audio.createOscillator(), g = audio.createGain(), t = audio.currentTime;
@@ -190,16 +255,6 @@ function click() {
   } catch {}
 }
 document.addEventListener("click", (ev) => { if (ev.target.closest("button")) click(); });
-function renderSound() {
-  $("sound").textContent = state.sound ? "♪" : "×";
-  $("sound").setAttribute("aria-pressed", String(state.sound));
-}
-$("sound").addEventListener("click", () => {
-  state.sound = !state.sound;
-  try { localStorage.setItem("mc-sound", state.sound ? "on" : "off"); } catch {}
-  renderSound();
-});
-renderSound();
 
 // ---------- Chat ----------
 function chat(text, color = "") {
@@ -213,18 +268,61 @@ function chat(text, color = "") {
 }
 
 // ---------- Karte ----------
-const map = L.map("map", { zoomControl: false }).setView([CONFIG.origin.lat, CONFIG.origin.lon], 15);
-L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-  maxZoom: 19,
-  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-}).addTo(map);
-L.control.zoom({ position: "topright" }).addTo(map);
+const mc = createMcMap({
+  container: $("map"), labelsContainer: $("labels"),
+  center: [CONFIG.origin.lon, CONFIG.origin.lat], zoom: 15,
+  pixelSize: PIXEL_SIZES[settings.pixel], kind: settings.kind,
+});
+const map = mc.map;
 
-const blockIcon = (kind) => L.divIcon({ className: "", html: `<div class="block ${kind}"></div>`, iconSize: [18, 18], iconAnchor: [9, 9] });
-L.marker([CONFIG.origin.lat, CONFIG.origin.lon], { icon: blockIcon("spawn"), keyboard: false })
-  .addTo(map).bindTooltip(`Spawn · ${CONFIG.origin.name} · 0 ~ 0`);
+// Zahnrad als Pixelgrafik (9×9) mit Schatten, damit iOS kein Farb-Emoji daraus macht
+const GEAR = ["....#....", ".#.###.#.", "..#####..", ".##...##.", "###...###", ".##...##.", "..#####..", ".#.###.#.", "....#...."];
+const gearRects = (dx, color) => GEAR.flatMap((row, y) => [...row].map((c, x) =>
+  c === "#" ? `<rect x="${x + dx}" y="${y + dx}" width="1" height="1" fill="${color}"/>` : "")).join("");
+const gearSvg = `<svg viewBox="0 0 10 10" width="20" height="20" shape-rendering="crispEdges" aria-hidden="true">${gearRects(1, "#3f3f3f")}${gearRects(0, "#fff")}</svg>`;
 
-let playerMarker, accuracyCircle, targetMarker;
+// Zahnrad über dem Zoom, öffnet die Einstellungen
+map.addControl({
+  onAdd() {
+    const el = document.createElement("div");
+    el.className = "maplibregl-ctrl maplibregl-ctrl-group";
+    el.innerHTML = `<button type="button" class="gear" aria-label="Einstellungen" title="Einstellungen">${gearSvg}</button>`;
+    el.querySelector("button").addEventListener("click", openSettings);
+    return el;
+  },
+  onRemove() {},
+}, "top-right");
+map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
+
+const blockEl = (kind, title) => Object.assign(document.createElement("div"), { className: `block ${kind}`, title: title ?? "" });
+mc.addMarker(blockEl("spawn", `Spawn · ${CONFIG.origin.name} · 0 ~ 0`), [CONFIG.origin.lon, CONFIG.origin.lat]);
+let playerMarker, targetMarker;
+
+// ---------- Einstellungsdialog ----------
+function renderSettings() {
+  for (const [attr, value] of [["kind", settings.kind], ["pixel", settings.pixel], ["sound", settings.sound ? "on" : "off"]]) {
+    document.querySelectorAll(`[data-${attr}]`).forEach((b) => b.setAttribute("aria-pressed", String(b.dataset[attr] === value)));
+  }
+  document.querySelectorAll("[data-pixel]").forEach((b) => (b.disabled = settings.kind !== "mc"));
+}
+function openSettings() {
+  renderSettings();
+  $("settings").hidden = false;
+  $("settingsDone").focus();
+}
+function closeSettings() { $("settings").hidden = true; }
+$("settingsDone").addEventListener("click", closeSettings);
+$("settings").addEventListener("click", (ev) => { if (ev.target === $("settings")) closeSettings(); });
+document.addEventListener("keydown", (ev) => { if (ev.key === "Escape" && !$("settings").hidden) closeSettings(); });
+document.querySelectorAll("[data-kind]").forEach((b) => b.addEventListener("click", () => {
+  settings.kind = b.dataset.kind; saveSettings(); mc.setKind(settings.kind); renderSettings();
+}));
+document.querySelectorAll("[data-pixel]").forEach((b) => b.addEventListener("click", () => {
+  settings.pixel = b.dataset.pixel; saveSettings(); mc.setPixelSize(PIXEL_SIZES[settings.pixel]); renderSettings();
+}));
+document.querySelectorAll("[data-sound]").forEach((b) => b.addEventListener("click", () => {
+  settings.sound = b.dataset.sound === "on"; saveSettings(); renderSettings();
+}));
 
 // ---------- Anzeige ----------
 function renderF3() {
@@ -277,9 +375,9 @@ function renderTarget() {
 function setTarget(c, { pan = false } = {}) {
   const { lat, lon } = conv.fromMinecraft(c.x, c.z);
   state.target = { x: c.x, y: c.y ?? null, z: c.z, lat, lon };
-  if (!targetMarker) targetMarker = L.marker([lat, lon], { icon: blockIcon("target"), keyboard: false }).addTo(map);
-  else targetMarker.setLatLng([lat, lon]);
-  if (pan) map.setView([lat, lon], Math.max(map.getZoom(), 16));
+  if (!targetMarker) targetMarker = mc.addMarker(blockEl("target"), [lon, lat]);
+  else targetMarker.setLngLat([lon, lat]);
+  if (pan) map.easeTo({ center: [lon, lat], zoom: Math.max(map.getZoom(), 16.5) });
   renderTarget();
 }
 
@@ -358,7 +456,7 @@ if (navigator.clipboard?.readText) {
 }
 
 map.on("click", (ev) => {
-  const p = conv.toMinecraft(ev.latlng.lat, ev.latlng.lng);
+  const p = conv.toMinecraft(ev.lngLat.lat, ev.lngLat.lng);
   const c = { x: p.x, y: null, z: p.z };
   $("paste").value = formatCoords(c);
   setTarget(c);
@@ -370,15 +468,11 @@ function onPosition(pos) {
   const p = conv.toMinecraft(lat, lon);
   const first = !state.player;
   state.player = { ...p, y: conv.yFromEllipsoidal(altitude), lat, lon, accuracy, altitudeAccuracy };
-  if (!playerMarker) {
-    accuracyCircle = L.circle([lat, lon], { radius: accuracy, color: "#1d7e8a", weight: 1, fillOpacity: 0.1, interactive: false }).addTo(map);
-    playerMarker = L.marker([lat, lon], { icon: blockIcon("me"), keyboard: false, interactive: false }).addTo(map);
-  } else {
-    accuracyCircle.setLatLng([lat, lon]).setRadius(accuracy);
-    playerMarker.setLatLng([lat, lon]);
-  }
+  if (!playerMarker) playerMarker = mc.addMarker(blockEl("me", "Du"), [lon, lat]);
+  else playerMarker.setLngLat([lon, lat]);
+  mc.setAccuracy(lat, lon, accuracy);
   if (first) {
-    if (!state.target) map.setView([lat, lon], 17);
+    if (!state.target) map.easeTo({ center: [lon, lat], zoom: 17 });
     $("gps").hidden = true;
     $("copyMe").hidden = false;
     $("shareMe").hidden = false;
