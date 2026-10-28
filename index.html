@@ -39,6 +39,9 @@
     --red: #ff5555;
     --gray: #aaaaaa;
     --aqua: #55ffff;
+    /* Abstand oben: iOS zeichnet Homescreen-Apps unter die Statusleiste und legt darunter einen
+       Unschärfe-Verlauf, der etwas über die Leiste hinausreicht. Im normalen Browser ist der Wert 0. */
+    --safe-top: calc(env(safe-area-inset-top, 0px) * 1.25);
   }
   * { box-sizing: border-box; }
   [hidden] { display: none !important; }
@@ -52,6 +55,11 @@
   .shadow, button, .slot, #f3, #chat, #settings { text-shadow: 2px 2px 0 var(--shadow); }
 
   #stage { position: relative; flex: 1; min-height: 0; }
+  /* Schwarzer Streifen unter der Statusleiste, damit dort keine verschwommene Karte zu sehen ist */
+  #stage::before {
+    content: ""; position: absolute; top: 0; left: 0; right: 0; height: env(safe-area-inset-top, 0px);
+    background: #000; z-index: 9; pointer-events: none;
+  }
   #map, #labels { position: absolute; inset: 0; }
   #map { background: #7fb238; }
   /* Beschriftungen und Marker liegen als zweite, scharfe Karte darüber und fangen keine Berührungen ab */
@@ -64,8 +72,8 @@
   .maplibregl-ctrl-top-right, .maplibregl-ctrl-bottom-right { z-index: 5; }
   .maplibregl-ctrl-attrib { font: 12px var(--pixel); }
   .maplibregl-ctrl-top-right .maplibregl-ctrl { margin: 8px 8px 0 0; }
-  /* Im Vollbild vom Homescreen nicht unter die Statusleiste rutschen */
-  .maplibregl-ctrl-top-right { top: env(safe-area-inset-top); }
+  /* Im Vollbild vom Homescreen unterhalb der Statusleiste und ihrer Unschärfe bleiben */
+  .maplibregl-ctrl-top-right { top: var(--safe-top); }
 
   /* Bedienelemente auf der Karte als Steinknöpfe */
   .maplibregl-ctrl-group { border-radius: 0; border: 2px solid #000; box-shadow: none; background: var(--btn); }
@@ -79,7 +87,7 @@
 
   /* F3-Overlay: graue Hinterlegung pro Zeile wie im Spiel */
   #f3 {
-    position: absolute; top: max(8px, env(safe-area-inset-top)); left: 8px; right: 56px;
+    position: absolute; top: calc(8px + var(--safe-top)); left: 8px; right: 56px;
     z-index: 6; pointer-events: none; font: 19px/1.15 var(--digits);
   }
   #f3 div { width: fit-content; max-width: 100%; background: var(--f3-bg); padding: 0 4px; }
@@ -94,9 +102,9 @@
   /* Versteckt: ganz über den oberen Rand samt Statusleiste geschoben und unsichtbar,
      damit im Vollbild vom Homescreen nichts unter der Statusleiste hervorschaut */
   #toast {
-    position: absolute; top: max(8px, env(safe-area-inset-top)); left: 50%; z-index: 8;
+    position: absolute; top: calc(8px + var(--safe-top)); left: 50%; z-index: 8;
     width: min(300px, calc(100% - 16px));
-    transform: translate(-50%, calc(-100% - max(8px, env(safe-area-inset-top)) - 8px));
+    transform: translate(-50%, calc(-100% - 16px - var(--safe-top)));
     visibility: hidden; transition: transform 0.35s ease, visibility 0s linear 0.35s;
     display: flex; align-items: center; gap: 10px; padding: 8px 10px;
     background: #212121; border: 2px solid #000; box-shadow: inset 2px 2px 0 #555, inset -2px -2px 0 #111;
@@ -351,14 +359,14 @@
 </div>
 
 <script type="module">
-import { VERSION, CONFIG, createConverter, facing, nether, fromNether, parseCoords, formatCoords } from "./coords.js?v=20261028e";
-import { createMcMap, PIXEL_SIZES } from "./mcmap.js?v=20261028e";
-import { icon } from "./icons.js?v=20261028e";
-import { biomeFor } from "./biome.js?v=20261028e";
-import { sunElevation, mcTicks, dayPhase, skyTint } from "./sky.js?v=20261028e";
-import { describeWeather, fetchWeather, WeatherFx } from "./weather.js?v=20261028e";
-import { COLORS, loadWaypoints, saveWaypoints, addWaypoint, removeWaypoint } from "./waypoints.js?v=20261028e";
-import { ACHIEVEMENTS, placesReached, loadUnlocked, saveUnlocked } from "./achievements.js?v=20261028e";
+import { VERSION, CONFIG, createConverter, facing, nether, fromNether, parseCoords, formatCoords } from "./coords.js?v=20261028f";
+import { createMcMap, PIXEL_SIZES } from "./mcmap.js?v=20261028f";
+import { icon } from "./icons.js?v=20261028f";
+import { biomeFor } from "./biome.js?v=20261028f";
+import { sunElevation, mcTicks, dayPhase, skyTint } from "./sky.js?v=20261028f";
+import { describeWeather, fetchWeather, WeatherFx } from "./weather.js?v=20261028f";
+import { COLORS, loadWaypoints, saveWaypoints, addWaypoint, removeWaypoint } from "./waypoints.js?v=20261028f";
+import { ACHIEVEMENTS, placesReached, loadUnlocked, saveUnlocked } from "./achievements.js?v=20261028f";
 
 const conv = createConverter(proj4);
 const $ = (id) => document.getElementById(id);
