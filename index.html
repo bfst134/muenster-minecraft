@@ -15,6 +15,10 @@
 <!-- Schwarze Statusleiste über der App statt darüberliegend: sonst legt iOS dort einen Unschärfe-Verlauf
      über die oberste F3-Zeile und rechnet die Seitenhöhe ohne die Leiste (Lücke unten) -->
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
+<script>
+  // Vor dem ersten Zeichnen erkennen, ob die App vom Homescreen gestartet wurde
+  if (navigator.standalone || matchMedia("(display-mode: standalone)").matches) document.documentElement.classList.add("standalone");
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;600&family=VT323&display=swap">
@@ -39,9 +43,16 @@
     --red: #ff5555;
     --gray: #aaaaaa;
     --aqua: #55ffff;
-    /* Abstand oben: iOS zeichnet Homescreen-Apps unter die Statusleiste und legt darunter einen
-       Unschärfe-Verlauf, der etwas über die Leiste hinausreicht. Im normalen Browser ist der Wert 0. */
-    --safe-top: calc(env(safe-area-inset-top, 0px) * 1.25);
+    /* Oben: schwarzer Streifen (--strip) und Abstand für F3 und Knöpfe (--safe-top). Im normalen Browser 0. */
+    --strip: env(safe-area-inset-top, 0px);
+    --safe-top: calc(var(--strip) * 1.25);
+  }
+  /* Homescreen-App: iOS startet die Seite unter der Statusleiste (Inset 0) und füllt die Leiste mit einer
+     verschwommenen Fortsetzung des oberen Seitenrands, die etwa 20 pt in die Seite hineinreicht.
+     Ein eigener schwarzer Streifen macht die Leiste schwarz; F3 und Knöpfe beginnen unterhalb der Unschärfe. */
+  html.standalone {
+    --strip: max(env(safe-area-inset-top, 0px), 22px);
+    --safe-top: calc(var(--strip) + 14px);
   }
   * { box-sizing: border-box; }
   [hidden] { display: none !important; }
@@ -55,9 +66,9 @@
   .shadow, button, .slot, #f3, #chat, #settings { text-shadow: 2px 2px 0 var(--shadow); }
 
   #stage { position: relative; flex: 1; min-height: 0; }
-  /* Schwarzer Streifen unter der Statusleiste, damit dort keine verschwommene Karte zu sehen ist */
+  /* Schwarzer Streifen oben, damit in der Statusleiste keine verschwommene Karte zu sehen ist */
   #stage::before {
-    content: ""; position: absolute; top: 0; left: 0; right: 0; height: env(safe-area-inset-top, 0px);
+    content: ""; position: absolute; top: 0; left: 0; right: 0; height: var(--strip);
     background: #000; z-index: 9; pointer-events: none;
   }
   #map, #labels { position: absolute; inset: 0; }
@@ -359,14 +370,14 @@
 </div>
 
 <script type="module">
-import { VERSION, CONFIG, createConverter, facing, nether, fromNether, parseCoords, formatCoords } from "./coords.js?v=20261028f";
-import { createMcMap, PIXEL_SIZES } from "./mcmap.js?v=20261028f";
-import { icon } from "./icons.js?v=20261028f";
-import { biomeFor } from "./biome.js?v=20261028f";
-import { sunElevation, mcTicks, dayPhase, skyTint } from "./sky.js?v=20261028f";
-import { describeWeather, fetchWeather, WeatherFx } from "./weather.js?v=20261028f";
-import { COLORS, loadWaypoints, saveWaypoints, addWaypoint, removeWaypoint } from "./waypoints.js?v=20261028f";
-import { ACHIEVEMENTS, placesReached, loadUnlocked, saveUnlocked } from "./achievements.js?v=20261028f";
+import { VERSION, CONFIG, createConverter, facing, nether, fromNether, parseCoords, formatCoords } from "./coords.js?v=20261028g";
+import { createMcMap, PIXEL_SIZES } from "./mcmap.js?v=20261028g";
+import { icon } from "./icons.js?v=20261028g";
+import { biomeFor } from "./biome.js?v=20261028g";
+import { sunElevation, mcTicks, dayPhase, skyTint } from "./sky.js?v=20261028g";
+import { describeWeather, fetchWeather, WeatherFx } from "./weather.js?v=20261028g";
+import { COLORS, loadWaypoints, saveWaypoints, addWaypoint, removeWaypoint } from "./waypoints.js?v=20261028g";
+import { ACHIEVEMENTS, placesReached, loadUnlocked, saveUnlocked } from "./achievements.js?v=20261028g";
 
 const conv = createConverter(proj4);
 const $ = (id) => document.getElementById(id);
