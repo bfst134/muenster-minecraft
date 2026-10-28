@@ -85,6 +85,27 @@
   #f3 .dim { color: #e0e0e0; }
   #f3 .nether { color: #ff7a6a; }
 
+  /* Auf dem Handy zoomt man mit zwei Fingern; die Knöpfe würden nur die Leiste verlängern */
+  @media (pointer: coarse) { .maplibregl-ctrl-group:has(.maplibregl-ctrl-zoom-in) { display: none; } }
+
+  /* Fortschritt-Pop-up oben, gleitet herein */
+  #toast {
+    position: absolute; top: max(8px, env(safe-area-inset-top)); left: 50%; z-index: 8;
+    width: min(300px, calc(100% - 16px)); transform: translate(-50%, -140%); transition: transform 0.35s ease;
+    display: flex; align-items: center; gap: 10px; padding: 8px 10px;
+    background: #212121; border: 2px solid #000; box-shadow: inset 2px 2px 0 #555, inset -2px -2px 0 #111;
+    pointer-events: none; text-shadow: 2px 2px 0 var(--shadow);
+  }
+  #toast.show { transform: translate(-50%, 0); }
+  #toast .head { color: var(--yellow); font-size: 15px; }
+  #toast .title { color: #fff; font-weight: 600; }
+  @media (prefers-reduced-motion: reduce) { #toast { transition: none; } }
+  .ach-item { display: flex; align-items: center; gap: 10px; background: var(--slot-bg); border: 2px solid #000; padding: 6px 8px; }
+  .ach-item.locked { opacity: 0.55; }
+  .ach-item .text { flex: 1; min-width: 0; }
+  .ach-item .desc { color: var(--gray); font-size: 13px; }
+  .ach-item .date { color: var(--green); font: 16px/1 var(--digits); }
+
   /* Lila Portal-Wirbel beim Dimensionswechsel */
   #portalFx {
     position: absolute; inset: 0; z-index: 7; pointer-events: none; opacity: 0;
@@ -195,6 +216,7 @@
   <div id="labels" aria-hidden="true"></div>
   <canvas id="weather" aria-hidden="true" hidden></canvas>
   <div id="portalFx" aria-hidden="true"></div>
+  <div id="toast" role="status" aria-live="polite"></div>
   <div id="f3" aria-hidden="true"></div>
   <div id="chat" role="log" aria-live="polite"></div>
 </main>
@@ -258,6 +280,14 @@
   </div>
 </div>
 
+<div id="achList" class="dialog" role="dialog" aria-modal="true" aria-labelledby="achTitle" hidden>
+  <div class="box">
+    <h2 id="achTitle">Fortschritte</h2>
+    <div id="achItems" class="wp-items"></div>
+    <button type="button" class="mc done" id="achDone">Fertig</button>
+  </div>
+</div>
+
 <div id="settings" class="dialog" role="dialog" aria-modal="true" aria-labelledby="settingsTitle" hidden>
   <div class="box">
     <h2 id="settingsTitle">Einstellungen</h2>
@@ -316,6 +346,7 @@ import { biomeFor } from "./biome.js";
 import { sunElevation, mcTicks, dayPhase, skyTint } from "./sky.js";
 import { describeWeather, fetchWeather, WeatherFx } from "./weather.js";
 import { COLORS, loadWaypoints, saveWaypoints, addWaypoint, removeWaypoint } from "./waypoints.js";
+import { ACHIEVEMENTS, placesReached, loadUnlocked, saveUnlocked } from "./achievements.js";
 
 const conv = createConverter(proj4);
 const $ = (id) => document.getElementById(id);
@@ -416,8 +447,10 @@ map.addControl({
     el.className = "maplibregl-ctrl maplibregl-ctrl-group";
     el.innerHTML = `<button type="button" class="gear" aria-label="Einstellungen" title="Einstellungen">${icon("gear")}</button>`
       + `<button type="button" class="gear" id="portal" aria-label="Dimension wechseln" title="Nether / Oberwelt">${icon("portal")}</button>`
-      + `<button type="button" class="gear" id="wpOpen" aria-label="Wegpunkte" title="Wegpunkte">${icon("list")}</button>`;
+      + `<button type="button" class="gear" id="wpOpen" aria-label="Wegpunkte" title="Wegpunkte">${icon("list")}</button>`
+      + `<button type="button" class="gear" id="achOpen" aria-label="Fortschritte" title="Fortschritte">${icon("trophy", { color: "#f5c842" })}</button>`;
     el.querySelector(".gear").addEventListener("click", openSettings);
+    el.querySelector("#achOpen").addEventListener("click", openAchievements);
     el.querySelector("#portal").addEventListener("click", () => setDimension(inNether() ? "overworld" : "nether"));
     el.querySelector("#wpOpen").addEventListener("click", openWaypointList);
     return el;
@@ -544,6 +577,7 @@ function setDimension(dim, { quiet = false } = {}) {
   applyWeather();
   renderTarget();
   renderSettings();
+  if (dim === "nether") unlock("nether");
   if (quiet) return;
   const fx = $("portalFx");
   fx.classList.remove("on"); void fx.offsetWidth; fx.classList.add("on");
@@ -649,7 +683,7 @@ async function copyText(text) {
 
 async function copyCoords(c) {
   const text = fmt(c);
-  if (await copyText(text)) chat(`Koordinaten kopiert: ${text}`, "green");
+  if (await copyText(text)) { chat(`Koordinaten kopiert: ${text}`, "green"); unlock("share"); }
   else chat("Kopieren hat nicht geklappt.", "red");
 }
 
@@ -667,11 +701,11 @@ async function shareCoords(c, intro) {
   const text = `${intro} ${fmt(c)} ${inNether() ? "im Nether unter" : "in"} Münster ⛏`;
   const url = shareUrl(c);
   if (navigator.share) {
-    try { await navigator.share({ title: "Münster in Minecraft-Koordinaten", text, url }); }
+    try { await navigator.share({ title: "Münster in Minecraft-Koordinaten", text, url }); unlock("share"); }
     catch (err) { if (err.name !== "AbortError") chat("Teilen hat nicht geklappt.", "red"); }
     return;
   }
-  if (await copyText(`${text} ${url}`)) chat("Link kopiert, einfach einfügen und abschicken.", "green");
+  if (await copyText(`${text} ${url}`)) { chat("Link kopiert, einfach einfügen und abschicken.", "green"); unlock("share"); }
   else chat("Teilen hat nicht geklappt.", "red");
 }
 
@@ -736,6 +770,7 @@ $("wpSaveForm").addEventListener("submit", (ev) => {
   if (!saveWaypoints(waypoints)) chat("Speichern im Browser nicht möglich, der Wegpunkt gilt nur bis zum Neuladen.", "red");
   renderWaypointMarkers();
   chat(`Wegpunkt gespeichert: ${waypoints.at(-1).name}`, "green");
+  unlock("waypoint");
   pendingWaypoint = null;
   closeDialogs();
 });
@@ -769,6 +804,77 @@ function openWaypointList() {
 }
 $("wpListDone").addEventListener("click", closeDialogs);
 renderWaypointMarkers();
+
+// ---------- Fortschritte ----------
+let unlocked = loadUnlocked();
+const toastQueue = [];
+let toastBusy = false;
+
+// Selbst erzeugte kleine Fanfare: vier aufsteigende Rechteck-Töne
+function fanfare() {
+  if (!settings.sound) return;
+  try {
+    audio ??= new AudioContext();
+    const t0 = audio.currentTime;
+    [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => {
+      const o = audio.createOscillator(), g = audio.createGain(), t = t0 + i * 0.09;
+      o.type = "square"; o.frequency.setValueAtTime(f, t);
+      g.gain.setValueAtTime(0.05, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
+      o.connect(g).connect(audio.destination); o.start(t); o.stop(t + 0.2);
+    });
+  } catch {}
+}
+function showNextToast() {
+  if (toastBusy || !toastQueue.length) return;
+  toastBusy = true;
+  const a = toastQueue.shift(), el = $("toast");
+  el.innerHTML = `${icon("trophy", { size: 28, color: "#f5c842" })}<div><div class="head">Fortschritt erzielt!</div><div class="title"></div></div>`;
+  el.querySelector(".title").textContent = a.title;
+  requestAnimationFrame(() => el.classList.add("show"));
+  fanfare();
+  setTimeout(() => {
+    el.classList.remove("show");
+    setTimeout(() => { toastBusy = false; showNextToast(); }, 450);
+  }, 4000);
+}
+function unlock(id) {
+  const a = ACHIEVEMENTS.find((x) => x.id === id);
+  if (!a || unlocked[id]) return;
+  unlocked = { ...unlocked, [id]: new Date().toISOString().slice(0, 10) };
+  saveUnlocked(unlocked);
+  chat(`Fortschritt erzielt: [${a.title}]`, "green");
+  toastQueue.push(a);
+  showNextToast();
+}
+function openAchievements() {
+  const done = ACHIEVEMENTS.filter((a) => unlocked[a.id]).length;
+  $("achTitle").textContent = `Fortschritte ${done}/${ACHIEVEMENTS.length}`;
+  $("achItems").innerHTML = "";
+  for (const a of ACHIEVEMENTS) {
+    const row = Object.assign(document.createElement("div"), { className: `ach-item${unlocked[a.id] ? "" : " locked"}` });
+    row.innerHTML = `${icon("trophy", { size: 24, color: unlocked[a.id] ? "#f5c842" : "#777" })}`
+      + '<div class="text"><div class="title"></div><div class="desc"></div></div><span class="date"></span>';
+    row.querySelector(".title").textContent = a.title;
+    row.querySelector(".desc").textContent = a.desc;
+    if (unlocked[a.id]) row.querySelector(".date").textContent = unlocked[a.id].split("-").reverse().join(".");
+    $("achItems").append(row);
+  }
+  $("achList").hidden = false;
+}
+$("achDone").addEventListener("click", closeDialogs);
+
+// Vorschau-Parameter (zeit, wetter) schalten keine Wetter- oder Nacht-Erfolge frei
+const previewMode = () => ["zeit", "wetter"].some((k) => new URLSearchParams(location.search).has(k));
+function checkPositionAchievements() {
+  const p = state.player;
+  if (!p) return;
+  unlock("welcome");
+  for (const id of placesReached(p.lat, p.lon, p.accuracy, unlocked)) unlock(id);
+  if (Math.hypot(p.x, p.z) >= 3000) unlock("far");
+  if (previewMode()) return;
+  if (state.sky?.phase === "Nacht") unlock("night");
+  if (["rain", "drizzle", "storm", "storm-rain"].includes(state.weather?.fx)) unlock("rain");
+}
 
 function applyInput({ pan, announce }) {
   const c = parseCoords($("paste").value);
@@ -819,6 +925,7 @@ function onPosition(pos) {
   else playerMarker.setLngLat([lon, lat]);
   mc.setAccuracy(lat, lon, accuracy);
   updateBiome();
+  checkPositionAchievements();
   if (first) {
     if (!state.target) map.easeTo({ center: [lon, lat], zoom: 17 });
     $("gps").hidden = true;

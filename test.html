@@ -19,6 +19,7 @@ import { pointInFeature, biomeFor } from "./biome.js";
 import { sunElevation, mcTicks, dayPhase, skyTint } from "./sky.js";
 import { describeWeather } from "./weather.js";
 import { loadWaypoints, saveWaypoints, addWaypoint, removeWaypoint } from "./waypoints.js";
+import { ACHIEVEMENTS, inArea, placesReached, loadUnlocked, saveUnlocked } from "./achievements.js";
 
 const results = [];
 function test(name, fn) {
@@ -228,6 +229,29 @@ test("Wegpunkte anlegen, speichern, laden und löschen", () => {
   eq(removeWaypoint(loaded, loaded[0].id).length, 1, "gelöscht");
   mem.data["mc-waypoints"] = "kaputt{";
   eq(loadWaypoints(mem).length, 0, "kaputte Daten → leere Liste");
+});
+
+test("Fortschritte: Orte per Radius und Rechteck", () => {
+  const dom = ACHIEVEMENTS.find((a) => a.id === "spawn").area;
+  eq(inArea(dom.lat, dom.lon, dom), true, "am Dom");
+  const north100 = conv.fromMinecraft(0, -100);
+  eq(inArea(north100.lat, north100.lon, dom), false, "100 m nördlich ist zu weit");
+  eq(inArea(north100.lat, north100.lon, dom, 40), true, "mit 40 m GPS-Ungenauigkeit reicht es");
+  const north200 = conv.fromMinecraft(0, -200);
+  eq(inArea(north200.lat, north200.lon, dom, 500), false, "Ungenauigkeit zählt höchstens 50 m");
+  eq(placesReached(51.9512676, 7.6061360, 10, {}).includes("aasee"), true, "mitten auf dem Aasee");
+  eq(placesReached(51.9512676, 7.6061360, 10, { aasee: "2026-10-28" }).includes("aasee"), false, "schon erreicht");
+  eq(placesReached(52.1, 7.4, 10, {}).length, 0, "weit draußen nichts");
+  eq(new Set(ACHIEVEMENTS.map((a) => a.id)).size, ACHIEVEMENTS.length, "Ids eindeutig");
+});
+
+test("Fortschritte speichern und laden", () => {
+  const mem = { data: {}, getItem(k) { return this.data[k] ?? null; }, setItem(k, v) { this.data[k] = v; } };
+  eq(Object.keys(loadUnlocked(mem)).length, 0, "leer");
+  saveUnlocked({ spawn: "2026-10-28" }, mem);
+  eq(loadUnlocked(mem).spawn, "2026-10-28");
+  mem.data["mc-achievements"] = "[1,2]";
+  eq(Object.keys(loadUnlocked(mem)).length, 0, "falsches Format → leer");
 });
 
 const failed = results.filter((r) => !r.ok);
