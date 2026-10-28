@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Koordinaten-Tests</title>
+<style>
+  body { font: 14px/1.5 ui-monospace, Menlo, monospace; margin: 16px; background: #fff; color: #111; }
+  .pass { color: #1a7f37; } .fail { color: #cf222e; font-weight: bold; }
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.11.0/proj4.js"></script>
+</head>
+<body>
+<h1 id="summary">Tests laufen …</h1>
+<ul id="out"></ul>
+<script type="module">
+import { CONFIG, createConverter, facing, nether } from "./coords.js";
+
+const results = [];
+function test(name, fn) {
+  try { fn(); results.push({ name, ok: true }); }
+  catch (err) { results.push({ name, ok: false, msg: err.message }); }
+}
+function eq(actual, expected, label = "") {
+  if (actual !== expected) throw new Error(`${label} erwartet ${expected}, erhalten ${actual}`);
+}
+function near(actual, expected, tol, label = "") {
+  if (Math.abs(actual - expected) > tol) throw new Error(`${label} erwartet ${expected} ±${tol}, erhalten ${actual}`);
+}
+
+const conv = createConverter(proj4);
+
+// Referenzwerte unabhängig mit pyproj (EPSG:4326 → EPSG:25832) berechnet.
+test("Ursprung in UTM stimmt mit pyproj überein", () => {
+  near(conv.origin.e, 405585.597, 0.01, "E");
+  near(conv.origin.n, 5757827.192, 0.01, "N");
+});
+
+test("Ursprung ergibt (0, 0)", () => {
+  const p = conv.toMinecraft(CONFIG.origin.lat, CONFIG.origin.lon);
+  eq(p.x, 0, "X"); eq(p.z, 0, "Z");
+  eq(Object.is(p.x, -0) || Object.is(p.z, -0), false, "negative Null");
+});
+
+test("100 m nördlich ergibt Z = −100", () => {
+  const north = conv.fromMinecraft(0, -100);
+  if (north.lat <= CONFIG.origin.lat) throw new Error("Z = −100 liegt nicht nördlich");
+  near(north.n - conv.origin.n, 100, 1e-6, "ΔN");
+  const p = conv.toMinecraft(north.lat, north.lon);
+  eq(p.x, 0, "X"); eq(p.z, -100, "Z");
+});
+
+test("100 m östlich ergibt X = +100", () => {
+  const east = conv.fromMinecraft(100, 0);
+  if (east.lon <= CONFIG.origin.lon) throw new Error("X = 100 liegt nicht östlich");
+  const p = conv.toMinecraft(east.lat, east.lon);
+  eq(p.x, 100, "X"); eq(p.z, 0, "Z");
+});
+
+for (const [name, lat, lon, x, z] of [
+  ["Lambertikirche", 51.96253, 7.62806, 154, 68],
+  ["Aasee", 51.9555, 7.6105, -1068, 827],
+  ["Hauptbahnhof", 51.9566, 7.6353, 639, 736],
+]) {
+  test(`${name} stimmt mit pyproj überein (${x} / ${z})`, () => {
+    const p = conv.toMinecraft(lat, lon);
+    eq(p.x, x, "X"); eq(p.z, z, "Z");
+  });
+}
+
+test("Hin- und Rückrechnung ist verlustfrei (±1 Block) über ±10 km", () => {
+  for (let x = -10000; x <= 10000; x += 1250) {
+    for (let z = -10000; z <= 10000; z += 1250) {
+      const ll = conv.fromMinecraft(x, z);
+      const p = conv.toMinecraft(ll.lat, ll.lon);
+      if (Math.abs(p.x - x) > 1 || Math.abs(p.z - z) > 1) {
+        throw new Error(`(${x}, ${z}) → (${p.x}, ${p.z})`);
+      }
+    }
+  }
+});
+
+test("Y aus NN-Höhe und ellipsoidischer GPS-Höhe", () => {
+  eq(conv.yFromNN(60), 60, "NN 60");
+  eq(conv.yFromEllipsoidal(104.2), 60, "ellipsoidisch 104,2");
+  eq(conv.yFromEllipsoidal(null), null, "ohne Höhe");
+  const shifted = createConverter(proj4, { ...CONFIG, yOffset: 10 });
+  eq(shifted.yFromNN(60), 70, "mit Offset");
+});
+
+test("Facing wie im F3-Screen", () => {
+  for (const [h, name, yaw] of [[0, "north", 180], [90, "east", -90], [180, "south", 0], [270, "west", 90],
+                                [44, "north"], [46, "east"], [359, "north"], [-90, "west"]]) {
+    const f = facing(h);
+    eq(f.name, name, `${h}°`);
+    if (yaw !== undefined) eq(f.yaw, yaw, `Yaw bei ${h}°`);
+  }
+  eq(facing(0).towards, "Towards negative Z");
+});
+
+test("Nether-Koordinaten = Oberwelt / 8, abgerundet", () => {
+  const a = nether(15, 8); eq(a.x, 1); eq(a.z, 1);
+  const b = nether(-1, -9); eq(b.x, -1); eq(b.z, -2);
+});
+
+const failed = results.filter((r) => !r.ok);
+document.getElementById("summary").textContent =
+  failed.length ? `${failed.length} von ${results.length} Tests fehlgeschlagen` : `Alle ${results.length} Tests bestanden`;
+document.getElementById("out").innerHTML = results
+  .map((r) => `<li class="${r.ok ? "pass" : "fail"}">${r.ok ? "✓" : "✗"} ${r.name}${r.msg ? ": " + r.msg : ""}</li>`)
+  .join("");
+window.__testResults = results;
+</script>
+</body>
+</html>

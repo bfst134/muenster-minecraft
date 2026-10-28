@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1e1e1e">
+<title>Münster Koordinaten</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.11.0/proj4.js"></script>
+<style>
+  :root {
+    --bg: #1e1e1e;
+    --panel: #2b2b2b;
+    --f3-bg: rgba(80, 80, 80, 0.62);
+    --text: #f2f2f2;
+    --muted: #b8b8b8;
+    --accent: #5fbf3f;
+    --accent-dark: #3d8a26;
+    --border: #111;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font: 15px/1.4 system-ui, -apple-system, sans-serif;
+    display: flex; flex-direction: column;
+  }
+  #map { flex: 1; min-height: 0; background: #ccc; }
+
+  /* F3-Overlay: graue Hinterlegung pro Zeile wie im Spiel */
+  #f3 {
+    position: absolute; top: max(8px, env(safe-area-inset-top)); left: 8px; right: 8px;
+    z-index: 1000; pointer-events: none;
+    font: 14px/1.35 var(--mono); color: #fff;
+  }
+  #f3 div { width: fit-content; max-width: 100%; background: var(--f3-bg); padding: 0 4px; text-shadow: 1px 1px 0 #3f3f3f; }
+  #f3 .gap { height: 6px; background: none; }
+  #f3 .dim { color: #ddd; }
+
+  #panel {
+    background: var(--panel); border-top: 2px solid var(--border);
+    padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+    display: grid; gap: 10px;
+  }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  button {
+    font: 600 15px system-ui, sans-serif; color: #fff; cursor: pointer;
+    background: var(--accent-dark); border: 2px solid var(--border);
+    box-shadow: inset 0 -3px 0 rgba(0,0,0,.35), inset 0 2px 0 rgba(255,255,255,.2);
+    padding: 9px 14px; border-radius: 0;
+  }
+  button:active { box-shadow: inset 0 3px 0 rgba(0,0,0,.35); }
+  button.secondary { background: #555; }
+  button:disabled { opacity: 0.55; cursor: default; }
+  label { font: 13px var(--mono); color: var(--muted); }
+  input {
+    width: 6.5em; font: 16px var(--mono); color: var(--text);
+    background: #000; border: 2px solid #a0a0a0; padding: 7px 8px; border-radius: 0;
+  }
+  input:focus { outline: none; border-color: #fff; }
+  #target { font: 13px/1.5 var(--mono); color: var(--muted); min-height: 1.5em; overflow-wrap: anywhere; }
+  #target b { color: var(--text); font-weight: 600; }
+  #target a { color: #8fd1ff; }
+  #status { font-size: 13px; color: var(--muted); }
+</style>
+</head>
+<body>
+<div id="map" aria-label="Karte von Münster"></div>
+<div id="f3" aria-live="polite"></div>
+
+<section id="panel">
+  <div class="row">
+    <button id="gps">GPS starten</button>
+    <span id="status">Tippe auf die Karte, um Koordinaten eines Ortes zu sehen.</span>
+  </div>
+  <form id="goto" class="row">
+    <label>X <input id="inX" inputmode="numeric" pattern="-?[0-9]*" placeholder="154" required></label>
+    <label>Z <input id="inZ" inputmode="numeric" pattern="-?[0-9]*" placeholder="68" required></label>
+    <button type="submit" class="secondary">Anzeigen</button>
+  </form>
+  <div id="target"></div>
+</section>
+
+<script type="module">
+import { CONFIG, createConverter, facing, nether } from "./coords.js";
+
+const conv = createConverter(proj4);
+const $ = (id) => document.getElementById(id);
+
+const map = L.map("map", { zoomControl: false }).setView([CONFIG.origin.lat, CONFIG.origin.lon], 15);
+L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  maxZoom: 19,
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+}).addTo(map);
+L.control.zoom({ position: "topright" }).addTo(map);
+
+L.circleMarker([CONFIG.origin.lat, CONFIG.origin.lon], { radius: 6, color: "#000", weight: 2, fillColor: "#ffd23f", fillOpacity: 1 })
+  .addTo(map).bindTooltip(`${CONFIG.origin.name} · 0 / 0`);
+
+const state = { player: null, heading: null, target: null };
+let playerMarker, accuracyCircle, targetMarker;
+
+const fmt = (v) => (v == null ? "~" : String(v));
+const fixed = (v, d = 5) => v.toFixed(d);
+
+function renderF3() {
+  const lines = [`Münster 1:1 · Ursprung ${CONFIG.origin.name}`];
+  const p = state.player;
+  if (p) {
+    lines.push(`XYZ: ${p.x} / ${fmt(p.y)} / ${p.z}`);
+    const n = nether(p.x, p.z);
+    lines.push(`Nether: ${n.x} / ${n.z}`);
+  } else {
+    lines.push("XYZ: — / — / —");
+  }
+  if (state.heading != null) {
+    const f = facing(state.heading);
+    lines.push(`Facing: ${f.name} (${f.towards}) (${f.yaw.toFixed(1)})`);
+  }
+  if (p) {
+    const acc = [`GPS ±${Math.round(p.accuracy)} m`];
+    if (p.altitudeAccuracy != null) acc.push(`Höhe ±${Math.round(p.altitudeAccuracy)} m`);
+    lines.push("", `<span class="dim">${acc.join(" · ")}</span>`);
+  }
+  $("f3").innerHTML = lines.map((l) => (l === "" ? '<div class="gap"></div>' : `<div>${l}</div>`)).join("");
+}
+
+function renderTarget() {
+  const t = state.target;
+  if (!t) { $("target").textContent = ""; return; }
+  const ll = `${fixed(t.lat)}, ${fixed(t.lon)}`;
+  const n = nether(t.x, t.z);
+  let html = `<b>Ziel X ${t.x} / Z ${t.z}</b> · Nether ${n.x} / ${n.z}<br>${ll} · `
+    + `<a href="https://www.openstreetmap.org/?mlat=${fixed(t.lat, 6)}&mlon=${fixed(t.lon, 6)}#map=18/${fixed(t.lat, 6)}/${fixed(t.lon, 6)}" target="_blank" rel="noopener">OSM</a> · `
+    + `<a href="https://www.google.com/maps/search/?api=1&query=${fixed(t.lat, 6)},${fixed(t.lon, 6)}" target="_blank" rel="noopener">Google Maps</a>`;
+  if (state.player) {
+    const dx = t.x - state.player.x, dz = t.z - state.player.z;
+    const dist = Math.round(Math.hypot(dx, dz));
+    // Richtung zum Ziel als Kompasskurs: atan2(Ost, Nord), Nord = −Z
+    const dir = facing((Math.atan2(dx, -dz) * 180) / Math.PI);
+    html += `<br>${dist} Blöcke Richtung ${dir.name}`;
+  }
+  $("target").innerHTML = html;
+}
+
+function setTarget(x, z, { pan = false } = {}) {
+  const { lat, lon } = conv.fromMinecraft(x, z);
+  state.target = { x, z, lat, lon };
+  if (!targetMarker) {
+    targetMarker = L.circleMarker([lat, lon], { radius: 7, color: "#000", weight: 2, fillColor: "#ff5a36", fillOpacity: 1 }).addTo(map);
+  } else {
+    targetMarker.setLatLng([lat, lon]);
+  }
+  if (pan) map.setView([lat, lon], Math.max(map.getZoom(), 16));
+  renderTarget();
+}
+
+map.on("click", (ev) => {
+  const p = conv.toMinecraft(ev.latlng.lat, ev.latlng.lng);
+  $("inX").value = p.x;
+  $("inZ").value = p.z;
+  setTarget(p.x, p.z);
+});
+
+$("goto").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  const x = parseInt($("inX").value, 10), z = parseInt($("inZ").value, 10);
+  if (Number.isNaN(x) || Number.isNaN(z)) return;
+  setTarget(x, z, { pan: true });
+});
+
+function onPosition(pos) {
+  const { latitude: lat, longitude: lon, altitude, accuracy, altitudeAccuracy } = pos.coords;
+  const p = conv.toMinecraft(lat, lon);
+  const first = !state.player;
+  state.player = { ...p, y: conv.yFromEllipsoidal(altitude), lat, lon, accuracy, altitudeAccuracy };
+  if (!playerMarker) {
+    accuracyCircle = L.circle([lat, lon], { radius: accuracy, color: "#3a7bd5", weight: 1, fillOpacity: 0.12 }).addTo(map);
+    playerMarker = L.circleMarker([lat, lon], { radius: 7, color: "#fff", weight: 2, fillColor: "#3a7bd5", fillOpacity: 1 }).addTo(map);
+  } else {
+    accuracyCircle.setLatLng([lat, lon]).setRadius(accuracy);
+    playerMarker.setLatLng([lat, lon]);
+  }
+  if (first) map.setView([lat, lon], 17);
+  $("status").textContent = "GPS aktiv";
+  renderF3();
+  renderTarget();
+}
+
+function onPositionError(err) {
+  const msg = { 1: "Standortzugriff verweigert.", 2: "Position nicht verfügbar.", 3: "GPS-Zeitüberschreitung." }[err.code];
+  $("status").textContent = msg || err.message;
+}
+
+// Kompass: iOS liefert webkitCompassHeading, Android deviceorientationabsolute (alpha gegen den Uhrzeigersinn).
+function onOrientation(ev) {
+  let heading = null;
+  if (typeof ev.webkitCompassHeading === "number") heading = ev.webkitCompassHeading;
+  else if (ev.absolute && ev.alpha != null) heading = 360 - ev.alpha;
+  if (heading == null) return;
+  heading += screen.orientation?.angle ?? 0;
+  state.heading = ((heading % 360) + 360) % 360;
+  renderF3();
+}
+
+async function startCompass() {
+  const DOE = window.DeviceOrientationEvent;
+  if (!DOE) return;
+  if (typeof DOE.requestPermission === "function") {
+    try { if ((await DOE.requestPermission()) !== "granted") return; } catch { return; }
+  }
+  window.addEventListener("ondeviceorientationabsolute" in window ? "deviceorientationabsolute" : "deviceorientation", onOrientation);
+}
+
+$("gps").addEventListener("click", () => {
+  if (!("geolocation" in navigator)) { $("status").textContent = "Kein GPS im Browser verfügbar."; return; }
+  if (!window.isSecureContext) { $("status").textContent = "GPS braucht HTTPS (oder localhost)."; return; }
+  $("status").textContent = "Suche Position …";
+  $("gps").disabled = true;
+  startCompass();
+  navigator.geolocation.watchPosition(onPosition, (err) => { onPositionError(err); $("gps").disabled = false; }, {
+    enableHighAccuracy: true, maximumAge: 2000, timeout: 20000,
+  });
+});
+
+renderF3();
+</script>
+</body>
+</html>
