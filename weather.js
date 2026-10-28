@@ -75,14 +75,19 @@ export class WeatherFx {
 
   particle(anywhere) {
     const snow = this.fx === "snow";
+    const v = snow ? 0.15 + Math.random() * 0.25 : 1.6 + Math.random() * 1.2;
+    const drift = snow ? (Math.random() - 0.5) * 0.3 : 0.25;
+    // Seitlicher Weg bis zum unteren Rand. Neue Teilchen starten um genau diesen Weg versetzt,
+    // sonst bleibt bei schräg fallendem Regen unten links ein Keil ohne Tropfen.
+    const travel = (this.h / v) * drift;
+    const from = Math.min(0, -travel), to = this.w + Math.max(0, -travel);
     return {
-      x: Math.random() * this.w,
+      x: from + Math.random() * (to - from),
       y: anywhere ? Math.random() * this.h : -4,
-      v: snow ? 0.15 + Math.random() * 0.25 : 1.6 + Math.random() * 1.2,
+      v, drift,
       // Schneeflocken 1×1 oder 2×2 Pixel, Regentropfen 1 Pixel breit und 2–4 lang
       size: snow ? 1 + Math.floor(Math.random() * 2) : 1,
       len: snow ? 1 : 2 + Math.floor(Math.random() * 3),
-      drift: snow ? (Math.random() - 0.5) * 0.3 : 0.25,
     };
   }
 
@@ -105,7 +110,9 @@ export class WeatherFx {
     for (const p of this.particles) {
       p.y += p.v;
       p.x += p.drift;
-      if (p.y > h || p.x > w || p.x < -2) Object.assign(p, this.particle(false));
+      // Erst ersetzen, wenn das Teilchen unten raus ist oder seitlich nicht mehr ins Bild driften kann
+      const gone = p.drift >= 0 ? p.x > w : p.x < -2;
+      if (p.y > h || gone) Object.assign(p, this.particle(false));
       ctx.fillRect(Math.round(p.x), Math.round(p.y), p.size, snow ? p.size : p.len);
     }
     // Gewitter: ab und zu ein Blitz
