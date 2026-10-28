@@ -85,17 +85,18 @@
   .c-yellow { color: var(--yellow); } .c-green { color: var(--green); }
   .c-red { color: var(--red); } .c-gray { color: var(--gray); } .c-aqua { color: var(--aqua); }
 
-  /* Panel: Erde mit Grasnarbe, Textur wird beim Start erzeugt */
+  /* Panel: Erde mit Grasnarbe, Textur wird beim Start erzeugt. Kompakt, damit die Karte Platz hat. */
   #panel {
-    background-color: #866043; background-repeat: repeat-x, repeat; background-position: top left, 0 28px;
-    padding: 36px 12px calc(12px + env(safe-area-inset-bottom));
-    display: grid; gap: 10px;
+    background-color: #866043; background-repeat: repeat-x, repeat; background-position: top left, 0 14px;
+    padding: 20px 8px calc(8px + env(safe-area-inset-bottom));
+    display: grid; gap: 6px;
   }
-  .slot { background: var(--slot-bg); border: 2px solid #000; padding: 8px 10px; display: grid; gap: 8px; }
-  .slot-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
-  .label { color: var(--yellow); font-weight: 600; }
-  .coords { font: 30px/1 var(--digits); }
-  .sub { color: var(--gray); font-size: 14px; }
+  .slot { background: var(--slot-bg); border: 2px solid #000; padding: 5px 6px 5px 10px; display: grid; gap: 4px; }
+  .line { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .label { color: var(--yellow); font-weight: 600; min-width: 2.4em; }
+  .coords { font: 28px/1 var(--digits); flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tools { display: flex; gap: 4px; flex: none; }
+  .sub { color: var(--gray); font-size: 13px; line-height: 1.25; flex: 1; min-width: 0; }
   .sub a { color: var(--aqua); }
   .row { display: flex; gap: 8px; align-items: stretch; flex-wrap: wrap; }
 
@@ -109,9 +110,11 @@
   button.mc:active { box-shadow: inset -2px -2px 0 var(--btn-hi), inset 2px 3px 0 var(--btn-lo); }
   button.mc:disabled { background: #2c2c2c; color: #a0a0a0; box-shadow: none; cursor: default; }
   button.mc[aria-pressed="true"] { background: #3d8a26; box-shadow: inset 2px 2px 0 #7fd45a, inset -2px -3px 0 #24561a; }
+  button.mc.icon { width: 40px; min-height: 40px; height: 40px; padding: 0; display: grid; place-items: center; }
+  button.mc.with-icon { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 4px 10px; }
   input {
     flex: 1; min-width: 0; font: 22px var(--digits); color: var(--text);
-    background: #000; border: 2px solid #a0a0a0; border-radius: 0; padding: 8px;
+    background: #000; border: 2px solid #a0a0a0; border-radius: 0; padding: 5px 8px; height: 40px;
   }
   input::placeholder { color: #707070; }
   input:focus { outline: none; border-color: #fff; }
@@ -144,30 +147,31 @@
 
 <section id="panel">
   <div class="slot">
-    <div class="slot-head">
+    <div class="line">
       <span class="label">Du</span>
       <span id="meCoords" class="coords">~ ~ ~</span>
-    </div>
-    <div class="row">
-      <button id="gps" type="button" class="mc">GPS starten</button>
-      <button id="copyMe" type="button" class="mc" hidden>Kopieren</button>
-      <button id="shareMe" type="button" class="mc" hidden>Teilen</button>
+      <span class="tools">
+        <button id="gps" type="button" class="mc with-icon" data-icon="gps">GPS</button>
+        <button id="copyMe" type="button" class="mc icon" data-icon="copy" aria-label="Eigene Koordinaten kopieren" hidden></button>
+        <button id="shareMe" type="button" class="mc icon" data-icon="share" aria-label="Eigene Position teilen" hidden></button>
+      </span>
     </div>
   </div>
 
   <form id="goto" class="slot" autocomplete="off">
-    <div class="slot-head">
+    <div class="line">
       <span class="label">Ziel</span>
-      <span id="targetCoords" class="coords" hidden></span>
+      <input id="paste" placeholder="Einfügen oder Karte antippen" enterkeyhint="go" aria-label="Koordinaten des Ziels">
+      <span class="tools">
+        <button id="pasteBtn" type="button" class="mc icon" data-icon="paste" aria-label="Aus Zwischenablage einfügen" hidden></button>
+      </span>
     </div>
-    <div class="row">
-      <input id="paste" placeholder="Koordinaten einfügen …" enterkeyhint="go" aria-label="Koordinaten">
-      <button id="pasteBtn" type="button" class="mc" hidden>Einfügen</button>
-    </div>
-    <div id="targetInfo" class="sub">Oder tippe auf die Karte.</div>
-    <div id="targetBtns" class="row" hidden>
-      <button id="copyTarget" type="button" class="mc">Kopieren</button>
-      <button id="shareTarget" type="button" class="mc">Teilen</button>
+    <div id="targetLine" class="line" hidden>
+      <span id="targetInfo" class="sub"></span>
+      <span class="tools">
+        <button id="copyTarget" type="button" class="mc icon" data-icon="copy" aria-label="Ziel kopieren"></button>
+        <button id="shareTarget" type="button" class="mc icon" data-icon="share" aria-label="Ziel teilen"></button>
+      </span>
     </div>
   </form>
 </section>
@@ -204,9 +208,16 @@
 <script type="module">
 import { CONFIG, createConverter, facing, nether, parseCoords, formatCoords } from "./coords.js";
 import { createMcMap, PIXEL_SIZES } from "./mcmap.js";
+import { icon } from "./icons.js";
 
 const conv = createConverter(proj4);
 const $ = (id) => document.getElementById(id);
+
+// Pixel-Icons in alle Buttons mit data-icon setzen (vor eventuellem Text)
+function fillIcons(root = document) {
+  root.querySelectorAll("[data-icon]").forEach((b) => b.insertAdjacentHTML("afterbegin", icon(b.dataset.icon)));
+}
+fillIcons();
 const state = { player: null, heading: null, target: null };
 
 // ---------- Einstellungen, gespeichert im Browser ----------
@@ -224,8 +235,8 @@ function saveSettings() {
 function rng(seed) {
   return () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32);
 }
-function texture(w, h, pick, seed) {
-  const s = 4, c = document.createElement("canvas");
+function texture(w, h, pick, seed, s = 4) {
+  const c = document.createElement("canvas");
   c.width = w * s; c.height = h * s;
   const ctx = c.getContext("2d"), r = rng(seed);
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
@@ -235,11 +246,11 @@ function texture(w, h, pick, seed) {
 }
 const dirt = ["#866043", "#866043", "#79553a", "#9b7653", "#593d29", "#6c4b33"];
 const grass = ["#5b8731", "#6aa83a", "#4a7027", "#5f9134"];
-const dirtTex = texture(16, 16, (x, y, r) => dirt[Math.floor(r() * dirt.length)], 7);
-const grassTex = texture(16, 9, (x, y, r) => {
-  const depth = 5 + Math.floor(r() * 4);
+const dirtTex = texture(16, 16, (x, y, r) => dirt[Math.floor(r() * dirt.length)], 7, 3);
+const grassTex = texture(16, 7, (x, y, r) => {
+  const depth = 4 + Math.floor(r() * 3);
   return y < depth ? grass[Math.floor(r() * grass.length)] : dirt[Math.floor(r() * dirt.length)];
-}, 11);
+}, 11, 3);
 $("panel").style.backgroundImage = `url(${grassTex}), url(${dirtTex})`;
 
 // ---------- Ton: kurzes, selbst erzeugtes Klicken ----------
@@ -275,18 +286,12 @@ const mc = createMcMap({
 });
 const map = mc.map;
 
-// Zahnrad als Pixelgrafik (9×9) mit Schatten, damit iOS kein Farb-Emoji daraus macht
-const GEAR = ["....#....", ".#.###.#.", "..#####..", ".##...##.", "###...###", ".##...##.", "..#####..", ".#.###.#.", "....#...."];
-const gearRects = (dx, color) => GEAR.flatMap((row, y) => [...row].map((c, x) =>
-  c === "#" ? `<rect x="${x + dx}" y="${y + dx}" width="1" height="1" fill="${color}"/>` : "")).join("");
-const gearSvg = `<svg viewBox="0 0 10 10" width="20" height="20" shape-rendering="crispEdges" aria-hidden="true">${gearRects(1, "#3f3f3f")}${gearRects(0, "#fff")}</svg>`;
-
 // Zahnrad über dem Zoom, öffnet die Einstellungen
 map.addControl({
   onAdd() {
     const el = document.createElement("div");
     el.className = "maplibregl-ctrl maplibregl-ctrl-group";
-    el.innerHTML = `<button type="button" class="gear" aria-label="Einstellungen" title="Einstellungen">${gearSvg}</button>`;
+    el.innerHTML = `<button type="button" class="gear" aria-label="Einstellungen" title="Einstellungen">${icon("gear")}</button>`;
     el.querySelector("button").addEventListener("click", openSettings);
     return el;
   },
@@ -360,15 +365,13 @@ function distanceText(t) {
 
 function renderTarget() {
   const t = state.target;
-  $("targetCoords").hidden = !t;
-  $("targetBtns").hidden = !t;
-  if (!t) { $("targetInfo").textContent = "Oder tippe auf die Karte."; return; }
-  $("targetCoords").textContent = formatCoords(t);
+  $("targetLine").hidden = !t;
+  if (!t) return;
   const n = nether(t.x, t.z);
   const lat = t.lat.toFixed(6), lon = t.lon.toFixed(6);
   const parts = [distanceText(t), `Nether ${n.x} / ${n.z}`].filter(Boolean).join(" · ");
   $("targetInfo").innerHTML = `${parts}<br>`
-    + `<a href="https://maps.apple.com/?ll=${lat},${lon}&q=${encodeURIComponent(formatCoords(t))}" target="_blank" rel="noopener">Apple Karten</a> · `
+    + `<a href="https://maps.apple.com/?ll=${lat},${lon}&q=${encodeURIComponent(formatCoords(t))}" target="_blank" rel="noopener">Apple</a> · `
     + `<a href="https://www.google.com/maps/search/?api=1&query=${lat},${lon}" target="_blank" rel="noopener">Google Maps</a>`;
 }
 
