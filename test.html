@@ -16,6 +16,7 @@
 <script type="module">
 import { CONFIG, createConverter, facing, nether, parseCoords, formatCoords } from "./coords.js";
 import { pointInFeature, biomeFor } from "./biome.js";
+import { sunElevation, mcTicks, dayPhase, skyTint } from "./sky.js";
 
 const results = [];
 function test(name, fn) {
@@ -156,6 +157,38 @@ test("Biome aus Kartenflächen", () => {
   eq(biomeFor({}), "minecraft:plains");
   eq(biomeFor({ water: "lake" }, "nether"), "minecraft:basalt_deltas");
   eq(biomeFor({}, "nether"), "minecraft:nether_wastes");
+});
+
+// Höchster Sonnenstand eines Tages (minutengenau abgetastet) und die Uhrzeit dazu
+function solarNoon(y, m, d) {
+  let best = { elev: -90, date: null };
+  for (let min = 9 * 60; min < 15 * 60; min++) {
+    const date = new Date(Date.UTC(y, m, d, 0, min));
+    const elev = sunElevation(date, CONFIG.origin.lat, CONFIG.origin.lon);
+    if (elev > best.elev) best = { elev, date };
+  }
+  return best;
+}
+
+test("Sonnenhöchststand in Münster: Sommer ≈ 61,5°, Winter ≈ 14,6°", () => {
+  near(solarNoon(2026, 5, 21).elev, 90 - CONFIG.origin.lat + 23.44, 0.6, "21. Juni");
+  near(solarNoon(2026, 11, 21).elev, 90 - CONFIG.origin.lat - 23.44, 0.6, "21. Dezember");
+});
+
+test("Minecraft-Zeit: Mittag = 6000, Mitternacht = 18000", () => {
+  for (const [m, d] of [[1, 10], [5, 21], [10, 3]]) {
+    const noon = solarNoon(2026, m, d).date;
+    near(mcTicks(noon, CONFIG.origin.lon), 6000, 25, `Mittag ${d}.${m + 1}.`);
+    const midnight = new Date(noon.getTime() + 12 * 3600000);
+    near(mcTicks(midnight, CONFIG.origin.lon), 18000, 25, `Mitternacht ${d}.${m + 1}.`);
+  }
+});
+
+test("Tagesphase und Färbung nach Sonnenstand", () => {
+  eq(dayPhase(30), "Tag"); eq(dayPhase(0), "Dämmerung"); eq(dayPhase(-10), "Nacht");
+  eq(skyTint(30), null, "Tag ohne Färbung");
+  eq(skyTint(-20), "rgb(55,65,125)", "Nacht");
+  eq(skyTint(-4), "rgb(150,120,190)", "Dämmerung");
 });
 
 const failed = results.filter((r) => !r.ok);

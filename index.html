@@ -53,7 +53,9 @@
   #map, #labels { position: absolute; inset: 0; }
   #map { background: #7fb238; }
   /* Beschriftungen und Marker liegen als zweite, scharfe Karte darüber und fangen keine Berührungen ab */
-  #labels { pointer-events: none; z-index: 1; }
+  #labels { pointer-events: none; z-index: 2; }
+  /* Tag und Nacht: farbige Ebene, die die Karte multipliziert; Beschriftungen bleiben hell darüber */
+  #sky { position: absolute; inset: 0; z-index: 1; pointer-events: none; mix-blend-mode: multiply; transition: background-color 2s; }
   /* Pixel-Look: Karte in niedriger Auflösung zeichnen, ohne Glättung hochskalieren */
   #map.pixel .maplibregl-canvas { image-rendering: pixelated; image-rendering: crisp-edges; }
   .maplibregl-ctrl-top-right, .maplibregl-ctrl-bottom-right { z-index: 3; }
@@ -156,6 +158,7 @@
 <body>
 <main id="stage">
   <div id="map" aria-label="Karte von Münster"></div>
+  <div id="sky" hidden></div>
   <div id="labels" aria-hidden="true"></div>
   <div id="f3" aria-hidden="true"></div>
   <div id="chat" role="log" aria-live="polite"></div>
@@ -211,6 +214,13 @@
       </div>
     </div>
     <div class="group">
+      <span class="label">Tag und Nacht</span>
+      <div class="row">
+        <button type="button" class="mc" data-daynight="real">Echt</button>
+        <button type="button" class="mc" data-daynight="day">Immer Tag</button>
+      </div>
+    </div>
+    <div class="group">
       <span class="label">Ton</span>
       <div class="row">
         <button type="button" class="mc" data-sound="on">An</button>
@@ -226,6 +236,7 @@ import { CONFIG, createConverter, facing, nether, parseCoords, formatCoords } fr
 import { createMcMap, PIXEL_SIZES } from "./mcmap.js";
 import { icon } from "./icons.js";
 import { biomeFor } from "./biome.js";
+import { sunElevation, mcTicks, dayPhase, skyTint } from "./sky.js";
 
 const conv = createConverter(proj4);
 const $ = (id) => document.getElementById(id);
@@ -238,7 +249,7 @@ fillIcons();
 const state = { player: null, heading: null, target: null, biome: null };
 
 // ---------- Einstellungen, gespeichert im Browser ----------
-const settings = { kind: "mc", pixel: "mittel", sound: true };
+const settings = { kind: "mc", pixel: "mittel", sound: true, daynight: "real" };
 try {
   Object.assign(settings, JSON.parse(localStorage.getItem("mc-settings") ?? "{}"));
   if (localStorage.getItem("mc-sound") === "off") settings.sound = false;
@@ -328,7 +339,7 @@ let playerMarker, targetMarker;
 
 // ---------- Einstellungsdialog ----------
 function renderSettings() {
-  for (const [attr, value] of [["kind", settings.kind], ["pixel", settings.pixel], ["sound", settings.sound ? "on" : "off"]]) {
+  for (const [attr, value] of [["kind", settings.kind], ["pixel", settings.pixel], ["sound", settings.sound ? "on" : "off"], ["daynight", settings.daynight]]) {
     document.querySelectorAll(`[data-${attr}]`).forEach((b) => b.setAttribute("aria-pressed", String(b.dataset[attr] === value)));
   }
   document.querySelectorAll("[data-pixel]").forEach((b) => (b.disabled = settings.kind !== "mc"));
@@ -351,6 +362,29 @@ document.querySelectorAll("[data-pixel]").forEach((b) => b.addEventListener("cli
 document.querySelectorAll("[data-sound]").forEach((b) => b.addEventListener("click", () => {
   settings.sound = b.dataset.sound === "on"; saveSettings(); renderSettings();
 }));
+document.querySelectorAll("[data-daynight]").forEach((b) => b.addEventListener("click", () => {
+  settings.daynight = b.dataset.daynight; saveSettings(); renderSettings(); updateSky();
+}));
+
+// ---------- Tag und Nacht nach echtem Sonnenstand am Dom ----------
+// ?zeit=22:30 zeigt eine andere Uhrzeit von heute, zum Ausprobieren
+function now() {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(new URLSearchParams(location.search).get("zeit") ?? "");
+  if (!m) return new Date();
+  const d = new Date();
+  d.setHours(Number(m[1]), Number(m[2]), 0, 0);
+  return d;
+}
+function updateSky() {
+  const date = now();
+  const elevation = sunElevation(date, CONFIG.origin.lat, CONFIG.origin.lon);
+  state.sky = { elevation, ticks: mcTicks(date, CONFIG.origin.lon), phase: dayPhase(elevation) };
+  const tint = settings.daynight === "real" ? skyTint(elevation) : null;
+  $("sky").hidden = !tint;
+  if (tint) $("sky").style.backgroundColor = tint;
+  renderF3();
+}
+setInterval(updateSky, 60000);
 
 // ---------- Anzeige ----------
 function renderF3() {
@@ -370,6 +404,7 @@ function renderF3() {
     const f = facing(state.heading);
     lines.push(`Facing: ${f.name} (${f.towards}) (${f.yaw.toFixed(1)})`);
   }
+  if (state.sky) lines.push(`Zeit: ${state.sky.ticks} ticks · ${state.sky.phase}`);
   if (p) {
     const acc = [`GPS ±${Math.round(p.accuracy)} m`];
     if (p.altitudeAccuracy != null) acc.push(`Höhe ±${Math.round(p.altitudeAccuracy)} m`);
@@ -568,8 +603,12 @@ $("gps").addEventListener("click", () => {
 });
 
 // ---------- Start ----------
-renderF3();
-const shared = location.search ? parseCoords(location.search) : null;
+updateSky();
+// Nur x, y und z aus dem Link lesen, andere Parameter (z. B. zeit) ignorieren
+const params = new URLSearchParams(location.search);
+const shared = params.has("x") && params.has("z")
+  ? parseCoords(["x", "y", "z"].filter((k) => params.has(k)).map((k) => `${k}=${params.get(k)}`).join(" "))
+  : null;
 if (shared) {
   $("paste").value = formatCoords(shared);
   setTarget(shared, { pan: true });
