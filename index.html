@@ -339,14 +339,14 @@
 </div>
 
 <script type="module">
-import { CONFIG, createConverter, facing, nether, fromNether, parseCoords, formatCoords } from "./coords.js";
-import { createMcMap, PIXEL_SIZES } from "./mcmap.js";
-import { icon } from "./icons.js";
-import { biomeFor } from "./biome.js";
-import { sunElevation, mcTicks, dayPhase, skyTint } from "./sky.js";
-import { describeWeather, fetchWeather, WeatherFx } from "./weather.js";
-import { COLORS, loadWaypoints, saveWaypoints, addWaypoint, removeWaypoint } from "./waypoints.js";
-import { ACHIEVEMENTS, placesReached, loadUnlocked, saveUnlocked } from "./achievements.js";
+import { CONFIG, createConverter, facing, nether, fromNether, parseCoords, formatCoords } from "./coords.js?v=20261028";
+import { createMcMap, PIXEL_SIZES } from "./mcmap.js?v=20261028";
+import { icon } from "./icons.js?v=20261028";
+import { biomeFor } from "./biome.js?v=20261028";
+import { sunElevation, mcTicks, dayPhase, skyTint } from "./sky.js?v=20261028";
+import { describeWeather, fetchWeather, WeatherFx } from "./weather.js?v=20261028";
+import { COLORS, loadWaypoints, saveWaypoints, addWaypoint, removeWaypoint } from "./waypoints.js?v=20261028";
+import { ACHIEVEMENTS, placesReached, loadUnlocked, saveUnlocked } from "./achievements.js?v=20261028";
 
 const conv = createConverter(proj4);
 const $ = (id) => document.getElementById(id);
