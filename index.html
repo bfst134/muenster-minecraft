@@ -54,11 +54,12 @@
   #map { background: #7fb238; }
   /* Beschriftungen und Marker liegen als zweite, scharfe Karte darüber und fangen keine Berührungen ab */
   #labels { pointer-events: none; z-index: 2; }
+  #weather { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 3; pointer-events: none; image-rendering: pixelated; }
   /* Tag und Nacht: farbige Ebene, die die Karte multipliziert; Beschriftungen bleiben hell darüber */
   #sky { position: absolute; inset: 0; z-index: 1; pointer-events: none; mix-blend-mode: multiply; transition: background-color 2s; }
   /* Pixel-Look: Karte in niedriger Auflösung zeichnen, ohne Glättung hochskalieren */
   #map.pixel .maplibregl-canvas { image-rendering: pixelated; image-rendering: crisp-edges; }
-  .maplibregl-ctrl-top-right, .maplibregl-ctrl-bottom-right { z-index: 3; }
+  .maplibregl-ctrl-top-right, .maplibregl-ctrl-bottom-right { z-index: 5; }
   .maplibregl-ctrl-attrib { font: 12px var(--pixel); }
   .maplibregl-ctrl-top-right .maplibregl-ctrl { margin: 8px 8px 0 0; }
   /* Im Vollbild vom Homescreen nicht unter die Statusleiste rutschen */
@@ -77,7 +78,7 @@
   /* F3-Overlay: graue Hinterlegung pro Zeile wie im Spiel */
   #f3 {
     position: absolute; top: max(8px, env(safe-area-inset-top)); left: 8px; right: 56px;
-    z-index: 4; pointer-events: none; font: 19px/1.15 var(--digits);
+    z-index: 6; pointer-events: none; font: 19px/1.15 var(--digits);
   }
   #f3 div { width: fit-content; max-width: 100%; background: var(--f3-bg); padding: 0 4px; }
   #f3 .gap { height: 6px; background: none; }
@@ -85,7 +86,7 @@
 
   /* Chat unten links, Nachrichten blenden aus */
   #chat {
-    position: absolute; left: 8px; right: 48px; bottom: 8px; z-index: 4;
+    position: absolute; left: 8px; right: 48px; bottom: 8px; z-index: 6;
     display: flex; flex-direction: column; align-items: flex-start;
     pointer-events: none; font: 19px/1.15 var(--digits);
   }
@@ -160,6 +161,7 @@
   <div id="map" aria-label="Karte von Münster"></div>
   <div id="sky" hidden></div>
   <div id="labels" aria-hidden="true"></div>
+  <canvas id="weather" aria-hidden="true" hidden></canvas>
   <div id="f3" aria-hidden="true"></div>
   <div id="chat" role="log" aria-live="polite"></div>
 </main>
@@ -221,6 +223,13 @@
       </div>
     </div>
     <div class="group">
+      <span class="label">Wetter</span>
+      <div class="row">
+        <button type="button" class="mc" data-weather="real">Echt</button>
+        <button type="button" class="mc" data-weather="off">Aus</button>
+      </div>
+    </div>
+    <div class="group">
       <span class="label">Ton</span>
       <div class="row">
         <button type="button" class="mc" data-sound="on">An</button>
@@ -237,6 +246,7 @@ import { createMcMap, PIXEL_SIZES } from "./mcmap.js";
 import { icon } from "./icons.js";
 import { biomeFor } from "./biome.js";
 import { sunElevation, mcTicks, dayPhase, skyTint } from "./sky.js";
+import { describeWeather, fetchWeather, WeatherFx } from "./weather.js";
 
 const conv = createConverter(proj4);
 const $ = (id) => document.getElementById(id);
@@ -249,7 +259,7 @@ fillIcons();
 const state = { player: null, heading: null, target: null, biome: null };
 
 // ---------- Einstellungen, gespeichert im Browser ----------
-const settings = { kind: "mc", pixel: "mittel", sound: true, daynight: "real" };
+const settings = { kind: "mc", pixel: "mittel", sound: true, daynight: "real", weather: "real" };
 try {
   Object.assign(settings, JSON.parse(localStorage.getItem("mc-settings") ?? "{}"));
   if (localStorage.getItem("mc-sound") === "off") settings.sound = false;
@@ -339,7 +349,7 @@ let playerMarker, targetMarker;
 
 // ---------- Einstellungsdialog ----------
 function renderSettings() {
-  for (const [attr, value] of [["kind", settings.kind], ["pixel", settings.pixel], ["sound", settings.sound ? "on" : "off"], ["daynight", settings.daynight]]) {
+  for (const [attr, value] of [["kind", settings.kind], ["pixel", settings.pixel], ["sound", settings.sound ? "on" : "off"], ["daynight", settings.daynight], ["weather", settings.weather]]) {
     document.querySelectorAll(`[data-${attr}]`).forEach((b) => b.setAttribute("aria-pressed", String(b.dataset[attr] === value)));
   }
   document.querySelectorAll("[data-pixel]").forEach((b) => (b.disabled = settings.kind !== "mc"));
@@ -386,6 +396,31 @@ function updateSky() {
 }
 setInterval(updateSky, 60000);
 
+// ---------- Wetter am Dom, alle 15 Minuten neu ----------
+// ?wetter=rain|snow|storm|fog|drizzle zeigt einen Effekt zum Ausprobieren
+const weatherFx = new WeatherFx($("weather"));
+async function updateWeather() {
+  const preview = new URLSearchParams(location.search).get("wetter");
+  try {
+    if (preview) state.weather = { label: `Vorschau (${preview})`, fx: preview, temp: null };
+    else {
+      const w = await fetchWeather(CONFIG.origin.lat, CONFIG.origin.lon);
+      state.weather = { ...describeWeather(w.code), temp: w.temp };
+    }
+  } catch {
+    state.weather = null;
+  }
+  applyWeather();
+}
+function applyWeather() {
+  weatherFx.set(settings.weather === "real" ? state.weather?.fx ?? null : null);
+  renderF3();
+}
+document.querySelectorAll("[data-weather]").forEach((b) => b.addEventListener("click", () => {
+  settings.weather = b.dataset.weather; saveSettings(); renderSettings(); applyWeather();
+}));
+setInterval(updateWeather, 15 * 60000);
+
 // ---------- Anzeige ----------
 function renderF3() {
   const lines = [`Münster 1:1 · Spawn: ${CONFIG.origin.name}`];
@@ -405,6 +440,7 @@ function renderF3() {
     lines.push(`Facing: ${f.name} (${f.towards}) (${f.yaw.toFixed(1)})`);
   }
   if (state.sky) lines.push(`Zeit: ${state.sky.ticks} ticks · ${state.sky.phase}`);
+  if (state.weather) lines.push(`Wetter: ${state.weather.label}${state.weather.temp != null ? ` · ${Math.round(state.weather.temp)} °C` : ""}`);
   if (p) {
     const acc = [`GPS ±${Math.round(p.accuracy)} m`];
     if (p.altitudeAccuracy != null) acc.push(`Höhe ±${Math.round(p.altitudeAccuracy)} m`);
@@ -604,6 +640,7 @@ $("gps").addEventListener("click", () => {
 
 // ---------- Start ----------
 updateSky();
+updateWeather();
 // Nur x, y und z aus dem Link lesen, andere Parameter (z. B. zeit) ignorieren
 const params = new URLSearchParams(location.search);
 const shared = params.has("x") && params.has("z")

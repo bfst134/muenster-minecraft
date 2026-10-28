@@ -17,6 +17,7 @@
 import { CONFIG, createConverter, facing, nether, parseCoords, formatCoords } from "./coords.js";
 import { pointInFeature, biomeFor } from "./biome.js";
 import { sunElevation, mcTicks, dayPhase, skyTint } from "./sky.js";
+import { describeWeather } from "./weather.js";
 
 const results = [];
 function test(name, fn) {
@@ -189,6 +190,16 @@ test("Tagesphase und Färbung nach Sonnenstand", () => {
   eq(skyTint(30), null, "Tag ohne Färbung");
   eq(skyTint(-20), "rgb(55,65,125)", "Nacht");
   eq(skyTint(-4), "rgb(150,120,190)", "Dämmerung");
+});
+
+test("Wettercodes werden zu Text und Effekt", () => {
+  eq(describeWeather(0).fx, null, "klar");
+  eq(describeWeather(61).label, "Regen");
+  eq(describeWeather(61).fx, "rain");
+  eq(describeWeather(75).fx, "snow");
+  eq(describeWeather(95).fx, "storm");
+  eq(describeWeather(45).fx, "fog");
+  eq(describeWeather(1234).label, "Unbekannt");
 });
 
 const failed = results.filter((r) => !r.ok);
