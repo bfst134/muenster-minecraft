@@ -14,7 +14,7 @@
 <h1 id="summary">Tests laufen …</h1>
 <ul id="out"></ul>
 <script type="module">
-import { CONFIG, createConverter, facing, nether } from "./coords.js";
+import { CONFIG, createConverter, facing, nether, parseCoords, formatCoords } from "./coords.js";
 
 const results = [];
 function test(name, fn) {
@@ -101,6 +101,38 @@ test("Facing wie im F3-Screen", () => {
 test("Nether-Koordinaten = Oberwelt / 8, abgerundet", () => {
   const a = nether(15, 8); eq(a.x, 1); eq(a.z, 1);
   const b = nether(-1, -9); eq(b.x, -1); eq(b.z, -2);
+});
+
+test("Eingefügte Koordinaten werden in vielen Formaten erkannt", () => {
+  for (const [input, x, y, z] of [
+    ["639 60 736", 639, 60, 736],
+    ["639, 736", 639, null, 736],
+    ["-1068 / 827", -1068, null, 827],
+    ["X: 639 Z: -872", 639, null, -872],
+    ["x=154 y=64 z=68", 154, 64, 68],
+    ["XYZ: 639 / 60 / 736", 639, 60, 736],
+    ["/tp @s 639 ~ 736", 639, null, 736],
+    ["  639.6   60   −736  ", 640, 60, -736],
+    ["Münster 1:1 · Ursprung St.-Paulus-Dom\nXYZ: 12 / 58 / -34\nNether: 1 / -5", 12, 58, -34],
+    ["Ich bin bei 639 ~ 736! https://bfst134.github.io/muenster-minecraft/?x=639&z=736", 639, null, 736],
+  ]) {
+    const c = parseCoords(input);
+    if (!c) throw new Error(`"${input}" nicht erkannt`);
+    eq(c.x, x, `X aus "${input}"`); eq(c.y, y, `Y aus "${input}"`); eq(c.z, z, `Z aus "${input}"`);
+  }
+});
+
+test("Uneindeutige Eingaben werden abgelehnt", () => {
+  for (const input of ["", "hallo", "639", "1 2 3 4", "~ 60 736", "99999999 0"]) {
+    eq(parseCoords(input), null, `"${input}"`);
+  }
+});
+
+test("Kopierformat passt zu /tp", () => {
+  eq(formatCoords({ x: 639, y: 60, z: 736 }), "639 60 736");
+  eq(formatCoords({ x: -3, y: null, z: 0 }), "-3 ~ 0");
+  const back = parseCoords(formatCoords({ x: -3, y: null, z: 176 }));
+  eq(back.x, -3); eq(back.y, null); eq(back.z, 176);
 });
 
 const failed = results.filter((r) => !r.ok);

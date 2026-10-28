@@ -3,92 +3,216 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#1e1e1e">
+<meta name="theme-color" content="#5b8731">
 <title>Münster Koordinaten</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;600&family=VT323&display=swap">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.11.0/proj4.js"></script>
 <style>
   :root {
-    --bg: #1e1e1e;
-    --panel: #2b2b2b;
+    --pixel: "Pixelify Sans", ui-monospace, Menlo, monospace;
+    /* Für Zahlen: "~" und "-" müssen klar unterscheidbar sein */
+    --digits: "VT323", ui-monospace, Menlo, monospace;
+    --text: #fff;
+    --shadow: #3f3f3f;
     --f3-bg: rgba(80, 80, 80, 0.62);
-    --text: #f2f2f2;
-    --muted: #b8b8b8;
-    --accent: #5fbf3f;
-    --accent-dark: #3d8a26;
-    --border: #111;
-    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --slot-bg: rgba(0, 0, 0, 0.58);
+    --btn: #727272;
+    --btn-hi: #a8a8a8;
+    --btn-lo: #4a4a4a;
+    --btn-hover: #7d86b4;
+    --yellow: #ffff55;
+    --green: #55ff55;
+    --red: #ff5555;
+    --gray: #aaaaaa;
+    --aqua: #55ffff;
   }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
   html, body { height: 100%; margin: 0; }
   body {
-    background: var(--bg); color: var(--text);
-    font: 15px/1.4 system-ui, -apple-system, sans-serif;
+    background: #3b2a1d; color: var(--text);
+    font: 17px/1.3 var(--pixel);
     display: flex; flex-direction: column;
+    -webkit-tap-highlight-color: transparent;
   }
-  #map { flex: 1; min-height: 0; background: #ccc; }
+  .shadow, button, .slot, #f3, #chat { text-shadow: 2px 2px 0 var(--shadow); }
+
+  #stage { position: relative; flex: 1; min-height: 0; }
+  #map { position: absolute; inset: 0; background: #7a9a5a; }
+  .leaflet-container { font-family: var(--pixel); }
 
   /* F3-Overlay: graue Hinterlegung pro Zeile wie im Spiel */
   #f3 {
-    position: absolute; top: max(8px, env(safe-area-inset-top)); left: 8px; right: 8px;
-    z-index: 1000; pointer-events: none;
-    font: 14px/1.35 var(--mono); color: #fff;
+    position: absolute; top: max(8px, env(safe-area-inset-top)); left: 8px; right: 56px;
+    z-index: 1000; pointer-events: none; font: 19px/1.15 var(--digits);
   }
-  #f3 div { width: fit-content; max-width: 100%; background: var(--f3-bg); padding: 0 4px; text-shadow: 1px 1px 0 #3f3f3f; }
+  #f3 div { width: fit-content; max-width: 100%; background: var(--f3-bg); padding: 0 4px; }
   #f3 .gap { height: 6px; background: none; }
-  #f3 .dim { color: #ddd; }
+  #f3 .dim { color: #e0e0e0; }
 
+  /* Chat unten links, Nachrichten blenden aus */
+  #chat {
+    position: absolute; left: 8px; right: 8px; bottom: 26px; z-index: 1000;
+    display: flex; flex-direction: column; align-items: flex-start; gap: 0;
+    pointer-events: none; font: 19px/1.15 var(--digits);
+  }
+  #chat div {
+    background: rgba(0, 0, 0, 0.5); padding: 1px 6px; max-width: 100%;
+    transition: opacity 0.8s; overflow-wrap: anywhere;
+  }
+  #chat div.fade { opacity: 0; }
+  .c-yellow { color: var(--yellow); } .c-green { color: var(--green); }
+  .c-red { color: var(--red); } .c-gray { color: var(--gray); } .c-aqua { color: var(--aqua); }
+
+  /* Panel: Erde mit Grasnarbe, Textur wird beim Start erzeugt */
   #panel {
-    background: var(--panel); border-top: 2px solid var(--border);
-    padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+    background-color: #866043; background-repeat: repeat-x, repeat; background-position: top left, 0 28px;
+    padding: 36px 12px calc(12px + env(safe-area-inset-bottom));
     display: grid; gap: 10px;
   }
-  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .slot { background: var(--slot-bg); border: 2px solid #000; padding: 8px 10px; display: grid; gap: 8px; }
+  .slot-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .label { color: var(--yellow); font-weight: 600; }
+  .coords { font: 30px/1 var(--digits); }
+  .sub { color: var(--gray); font-size: 14px; }
+  .sub a { color: var(--aqua); }
+  .row { display: flex; gap: 8px; align-items: stretch; flex-wrap: wrap; }
+
   button {
-    font: 600 15px system-ui, sans-serif; color: #fff; cursor: pointer;
-    background: var(--accent-dark); border: 2px solid var(--border);
-    box-shadow: inset 0 -3px 0 rgba(0,0,0,.35), inset 0 2px 0 rgba(255,255,255,.2);
-    padding: 9px 14px; border-radius: 0;
+    font: 600 16px var(--pixel); color: var(--text); cursor: pointer;
+    background: var(--btn); border: 2px solid #000; border-radius: 0;
+    box-shadow: inset 2px 2px 0 var(--btn-hi), inset -2px -3px 0 var(--btn-lo);
+    padding: 8px 14px; min-height: 42px;
   }
-  button:active { box-shadow: inset 0 3px 0 rgba(0,0,0,.35); }
-  button.secondary { background: #555; }
-  button:disabled { opacity: 0.55; cursor: default; }
-  label { font: 13px var(--mono); color: var(--muted); }
+  button:hover, button:focus-visible { background: var(--btn-hover); outline: none; }
+  button:active { box-shadow: inset -2px -2px 0 var(--btn-hi), inset 2px 3px 0 var(--btn-lo); }
+  button:disabled { background: #2c2c2c; color: #a0a0a0; box-shadow: none; cursor: default; }
+  button.icon { padding: 8px 10px; min-width: 42px; }
   input {
-    width: 6.5em; font: 16px var(--mono); color: var(--text);
-    background: #000; border: 2px solid #a0a0a0; padding: 7px 8px; border-radius: 0;
+    flex: 1; min-width: 0; font: 22px var(--digits); color: var(--text);
+    background: #000; border: 2px solid #a0a0a0; border-radius: 0; padding: 8px;
   }
+  input::placeholder { color: #707070; }
   input:focus { outline: none; border-color: #fff; }
-  #target { font: 13px/1.5 var(--mono); color: var(--muted); min-height: 1.5em; overflow-wrap: anywhere; }
-  #target b { color: var(--text); font-weight: 600; }
-  #target a { color: #8fd1ff; }
-  #status { font-size: 13px; color: var(--muted); }
+
+  /* Blockige Kartenmarker */
+  .block { width: 18px; height: 18px; border: 2px solid #000; image-rendering: pixelated; }
+  .block.spawn { background: #f5c842; box-shadow: inset 2px 2px 0 #fff3a8, inset -2px -2px 0 #b8860b; }
+  .block.me { background: #3fc6d6; box-shadow: inset 2px 2px 0 #b5f3fa, inset -2px -2px 0 #1d7e8a; }
+  .block.target { background: #d33a2a; box-shadow: inset 2px 2px 0 #ff9a8a, inset -2px -2px 0 #7a1a10; }
 </style>
 </head>
 <body>
-<div id="map" aria-label="Karte von Münster"></div>
-<div id="f3" aria-live="polite"></div>
+<main id="stage">
+  <div id="map" aria-label="Karte von Münster"></div>
+  <div id="f3" aria-hidden="true"></div>
+  <div id="chat" role="log" aria-live="polite"></div>
+</main>
 
 <section id="panel">
-  <div class="row">
-    <button id="gps">GPS starten</button>
-    <span id="status">Tippe auf die Karte, um Koordinaten eines Ortes zu sehen.</span>
+  <div class="slot">
+    <div class="slot-head">
+      <span class="label">Du</span>
+      <span id="meCoords" class="coords">~ ~ ~</span>
+    </div>
+    <div class="row">
+      <button id="gps" type="button">GPS starten</button>
+      <button id="copyMe" type="button" hidden>Kopieren</button>
+      <button id="shareMe" type="button" hidden>Teilen</button>
+      <button id="sound" type="button" class="icon" aria-label="Ton an/aus">♪</button>
+    </div>
   </div>
-  <form id="goto" class="row">
-    <label>X <input id="inX" inputmode="numeric" pattern="-?[0-9]*" placeholder="154" required></label>
-    <label>Z <input id="inZ" inputmode="numeric" pattern="-?[0-9]*" placeholder="68" required></label>
-    <button type="submit" class="secondary">Anzeigen</button>
+
+  <form id="goto" class="slot" autocomplete="off">
+    <div class="slot-head">
+      <span class="label">Ziel</span>
+      <span id="targetCoords" class="coords" hidden></span>
+    </div>
+    <div class="row">
+      <input id="paste" placeholder="Koordinaten einfügen …" enterkeyhint="go" aria-label="Koordinaten">
+      <button id="pasteBtn" type="button" hidden>Einfügen</button>
+    </div>
+    <div id="targetInfo" class="sub">Oder tippe auf die Karte.</div>
+    <div id="targetBtns" class="row" hidden>
+      <button id="copyTarget" type="button">Kopieren</button>
+      <button id="shareTarget" type="button">Teilen</button>
+    </div>
   </form>
-  <div id="target"></div>
 </section>
 
 <script type="module">
-import { CONFIG, createConverter, facing, nether } from "./coords.js";
+import { CONFIG, createConverter, facing, nether, parseCoords, formatCoords } from "./coords.js";
 
 const conv = createConverter(proj4);
 const $ = (id) => document.getElementById(id);
+const state = { player: null, heading: null, target: null, sound: true };
 
+try { state.sound = localStorage.getItem("mc-sound") !== "off"; } catch {}
+
+// ---------- Texturen: Erde und Gras als Pixelraster, jeder Pixel 4×4 ----------
+function rng(seed) {
+  return () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32);
+}
+function texture(w, h, pick, seed) {
+  const s = 4, c = document.createElement("canvas");
+  c.width = w * s; c.height = h * s;
+  const ctx = c.getContext("2d"), r = rng(seed);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const col = pick(x, y, r);
+    if (!col) continue;
+    ctx.fillStyle = col; ctx.fillRect(x * s, y * s, s, s);
+  }
+  return c.toDataURL();
+}
+const dirt = ["#866043", "#866043", "#79553a", "#9b7653", "#593d29", "#6c4b33"];
+const grass = ["#5b8731", "#6aa83a", "#4a7027", "#5f9134"];
+const dirtTex = texture(16, 16, (x, y, r) => dirt[Math.floor(r() * dirt.length)], 7);
+const grassTex = texture(16, 9, (x, y, r) => {
+  const depth = 5 + Math.floor(r() * 4);
+  return y < depth ? grass[Math.floor(r() * grass.length)] : dirt[Math.floor(r() * dirt.length)];
+}, 11);
+$("panel").style.backgroundImage = `url(${grassTex}), url(${dirtTex})`;
+
+// ---------- Ton: kurzes, selbst erzeugtes Klicken ----------
+let audio;
+function click() {
+  if (!state.sound) return;
+  try {
+    audio ??= new AudioContext();
+    const o = audio.createOscillator(), g = audio.createGain(), t = audio.currentTime;
+    o.type = "square"; o.frequency.setValueAtTime(520, t); o.frequency.exponentialRampToValueAtTime(260, t + 0.06);
+    g.gain.setValueAtTime(0.08, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
+    o.connect(g).connect(audio.destination); o.start(t); o.stop(t + 0.09);
+  } catch {}
+}
+document.addEventListener("click", (ev) => { if (ev.target.closest("button")) click(); });
+function renderSound() {
+  $("sound").textContent = state.sound ? "♪" : "×";
+  $("sound").setAttribute("aria-pressed", String(state.sound));
+}
+$("sound").addEventListener("click", () => {
+  state.sound = !state.sound;
+  try { localStorage.setItem("mc-sound", state.sound ? "on" : "off"); } catch {}
+  renderSound();
+});
+renderSound();
+
+// ---------- Chat ----------
+function chat(text, color = "") {
+  const line = document.createElement("div");
+  line.textContent = text;
+  if (color) line.className = `c-${color}`;
+  $("chat").append(line);
+  while ($("chat").children.length > 4) $("chat").firstElementChild.remove();
+  setTimeout(() => line.classList.add("fade"), 6000);
+  setTimeout(() => line.remove(), 7000);
+}
+
+// ---------- Karte ----------
 const map = L.map("map", { zoomControl: false }).setView([CONFIG.origin.lat, CONFIG.origin.lon], 15);
 L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
   maxZoom: 19,
@@ -96,24 +220,22 @@ L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
 }).addTo(map);
 L.control.zoom({ position: "topright" }).addTo(map);
 
-L.circleMarker([CONFIG.origin.lat, CONFIG.origin.lon], { radius: 6, color: "#000", weight: 2, fillColor: "#ffd23f", fillOpacity: 1 })
-  .addTo(map).bindTooltip(`${CONFIG.origin.name} · 0 / 0`);
+const blockIcon = (kind) => L.divIcon({ className: "", html: `<div class="block ${kind}"></div>`, iconSize: [18, 18], iconAnchor: [9, 9] });
+L.marker([CONFIG.origin.lat, CONFIG.origin.lon], { icon: blockIcon("spawn"), keyboard: false })
+  .addTo(map).bindTooltip(`Spawn · ${CONFIG.origin.name} · 0 ~ 0`);
 
-const state = { player: null, heading: null, target: null };
 let playerMarker, accuracyCircle, targetMarker;
 
-const fmt = (v) => (v == null ? "~" : String(v));
-const fixed = (v, d = 5) => v.toFixed(d);
-
+// ---------- Anzeige ----------
 function renderF3() {
-  const lines = [`Münster 1:1 · Ursprung ${CONFIG.origin.name}`];
+  const lines = [`Münster 1:1 · Spawn: ${CONFIG.origin.name}`];
   const p = state.player;
   if (p) {
-    lines.push(`XYZ: ${p.x} / ${fmt(p.y)} / ${p.z}`);
+    lines.push(`XYZ: ${p.x} / ${p.y ?? "~"} / ${p.z}`);
     const n = nether(p.x, p.z);
     lines.push(`Nether: ${n.x} / ${n.z}`);
   } else {
-    lines.push("XYZ: — / — / —");
+    lines.push("XYZ: ~ / ~ / ~");
   }
   if (state.heading != null) {
     const f = facing(state.heading);
@@ -125,73 +247,151 @@ function renderF3() {
     lines.push("", `<span class="dim">${acc.join(" · ")}</span>`);
   }
   $("f3").innerHTML = lines.map((l) => (l === "" ? '<div class="gap"></div>' : `<div>${l}</div>`)).join("");
+  $("meCoords").textContent = p ? formatCoords(p) : "~ ~ ~";
+}
+
+function distanceText(t) {
+  if (!state.player) return "";
+  const dx = t.x - state.player.x, dz = t.z - state.player.z;
+  const dist = Math.round(Math.hypot(dx, dz));
+  if (dist === 0) return "Du bist da!";
+  // Richtung als Kompasskurs: atan2(Ost, Nord), Nord = −Z
+  const dir = facing((Math.atan2(dx, -dz) * 180) / Math.PI);
+  return `${dist} Blöcke Richtung ${dir.name}`;
 }
 
 function renderTarget() {
   const t = state.target;
-  if (!t) { $("target").textContent = ""; return; }
-  const ll = `${fixed(t.lat)}, ${fixed(t.lon)}`;
+  $("targetCoords").hidden = !t;
+  $("targetBtns").hidden = !t;
+  if (!t) { $("targetInfo").textContent = "Oder tippe auf die Karte."; return; }
+  $("targetCoords").textContent = formatCoords(t);
   const n = nether(t.x, t.z);
-  let html = `<b>Ziel X ${t.x} / Z ${t.z}</b> · Nether ${n.x} / ${n.z}<br>${ll} · `
-    + `<a href="https://www.openstreetmap.org/?mlat=${fixed(t.lat, 6)}&mlon=${fixed(t.lon, 6)}#map=18/${fixed(t.lat, 6)}/${fixed(t.lon, 6)}" target="_blank" rel="noopener">OSM</a> · `
-    + `<a href="https://www.google.com/maps/search/?api=1&query=${fixed(t.lat, 6)},${fixed(t.lon, 6)}" target="_blank" rel="noopener">Google Maps</a>`;
-  if (state.player) {
-    const dx = t.x - state.player.x, dz = t.z - state.player.z;
-    const dist = Math.round(Math.hypot(dx, dz));
-    // Richtung zum Ziel als Kompasskurs: atan2(Ost, Nord), Nord = −Z
-    const dir = facing((Math.atan2(dx, -dz) * 180) / Math.PI);
-    html += `<br>${dist} Blöcke Richtung ${dir.name}`;
-  }
-  $("target").innerHTML = html;
+  const lat = t.lat.toFixed(6), lon = t.lon.toFixed(6);
+  const parts = [distanceText(t), `Nether ${n.x} / ${n.z}`].filter(Boolean).join(" · ");
+  $("targetInfo").innerHTML = `${parts}<br>`
+    + `<a href="https://maps.apple.com/?ll=${lat},${lon}&q=${encodeURIComponent(formatCoords(t))}" target="_blank" rel="noopener">Apple Karten</a> · `
+    + `<a href="https://www.google.com/maps/search/?api=1&query=${lat},${lon}" target="_blank" rel="noopener">Google Maps</a>`;
 }
 
-function setTarget(x, z, { pan = false } = {}) {
-  const { lat, lon } = conv.fromMinecraft(x, z);
-  state.target = { x, z, lat, lon };
-  if (!targetMarker) {
-    targetMarker = L.circleMarker([lat, lon], { radius: 7, color: "#000", weight: 2, fillColor: "#ff5a36", fillOpacity: 1 }).addTo(map);
-  } else {
-    targetMarker.setLatLng([lat, lon]);
-  }
+function setTarget(c, { pan = false } = {}) {
+  const { lat, lon } = conv.fromMinecraft(c.x, c.z);
+  state.target = { x: c.x, y: c.y ?? null, z: c.z, lat, lon };
+  if (!targetMarker) targetMarker = L.marker([lat, lon], { icon: blockIcon("target"), keyboard: false }).addTo(map);
+  else targetMarker.setLatLng([lat, lon]);
   if (pan) map.setView([lat, lon], Math.max(map.getZoom(), 16));
   renderTarget();
 }
 
-map.on("click", (ev) => {
-  const p = conv.toMinecraft(ev.latlng.lat, ev.latlng.lng);
-  $("inX").value = p.x;
-  $("inZ").value = p.z;
-  setTarget(p.x, p.z);
-});
+// ---------- Kopieren, Einfügen, Teilen ----------
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); return true; } catch {}
+  const ta = Object.assign(document.createElement("textarea"), { value: text, readOnly: true });
+  ta.style.cssText = "position:fixed;opacity:0";
+  document.body.append(ta); ta.select();
+  const ok = document.execCommand("copy");
+  ta.remove();
+  return ok;
+}
 
+async function copyCoords(c) {
+  const text = formatCoords(c);
+  if (await copyText(text)) chat(`Koordinaten kopiert: ${text}`, "green");
+  else chat("Kopieren hat nicht geklappt.", "red");
+}
+
+function shareUrl(c) {
+  const u = new URL(location.pathname, location.origin);
+  u.searchParams.set("x", c.x);
+  if (c.y != null) u.searchParams.set("y", c.y);
+  u.searchParams.set("z", c.z);
+  return u.toString();
+}
+
+async function shareCoords(c, intro) {
+  const text = `${intro} ${formatCoords(c)} in Münster ⛏`;
+  const url = shareUrl(c);
+  if (navigator.share) {
+    try { await navigator.share({ title: "Münster in Minecraft-Koordinaten", text, url }); }
+    catch (err) { if (err.name !== "AbortError") chat("Teilen hat nicht geklappt.", "red"); }
+    return;
+  }
+  if (await copyText(`${text} ${url}`)) chat("Link kopiert, einfach einfügen und abschicken.", "green");
+  else chat("Teilen hat nicht geklappt.", "red");
+}
+
+$("copyMe").addEventListener("click", () => state.player && copyCoords(state.player));
+$("shareMe").addEventListener("click", () => state.player && shareCoords(state.player, "Ich bin gerade bei"));
+$("copyTarget").addEventListener("click", () => state.target && copyCoords(state.target));
+$("shareTarget").addEventListener("click", () => state.target && shareCoords(state.target, "Treffpunkt:"));
+
+function applyInput({ pan, announce }) {
+  const c = parseCoords($("paste").value);
+  if (!c) {
+    if (announce && $("paste").value.trim()) chat("Darin stecken keine Koordinaten. Beispiel: 154 64 68", "red");
+    return;
+  }
+  setTarget(c, { pan });
+  if (announce) chat(`Ziel gesetzt: ${formatCoords(c)}`, "yellow");
+}
+
+$("paste").addEventListener("input", (ev) => {
+  const pasted = ev.inputType === "insertFromPaste";
+  applyInput({ pan: pasted, announce: pasted });
+});
 $("goto").addEventListener("submit", (ev) => {
   ev.preventDefault();
-  const x = parseInt($("inX").value, 10), z = parseInt($("inZ").value, 10);
-  if (Number.isNaN(x) || Number.isNaN(z)) return;
-  setTarget(x, z, { pan: true });
+  $("paste").blur();
+  applyInput({ pan: true, announce: true });
 });
 
+if (navigator.clipboard?.readText) {
+  $("pasteBtn").hidden = false;
+  $("pasteBtn").addEventListener("click", async () => {
+    try {
+      $("paste").value = await navigator.clipboard.readText();
+      applyInput({ pan: true, announce: true });
+    } catch {
+      chat("Kein Zugriff auf die Zwischenablage. Lange ins Feld tippen und einfügen.", "red");
+    }
+  });
+}
+
+map.on("click", (ev) => {
+  const p = conv.toMinecraft(ev.latlng.lat, ev.latlng.lng);
+  const c = { x: p.x, y: null, z: p.z };
+  $("paste").value = formatCoords(c);
+  setTarget(c);
+});
+
+// ---------- GPS und Kompass ----------
 function onPosition(pos) {
   const { latitude: lat, longitude: lon, altitude, accuracy, altitudeAccuracy } = pos.coords;
   const p = conv.toMinecraft(lat, lon);
   const first = !state.player;
   state.player = { ...p, y: conv.yFromEllipsoidal(altitude), lat, lon, accuracy, altitudeAccuracy };
   if (!playerMarker) {
-    accuracyCircle = L.circle([lat, lon], { radius: accuracy, color: "#3a7bd5", weight: 1, fillOpacity: 0.12 }).addTo(map);
-    playerMarker = L.circleMarker([lat, lon], { radius: 7, color: "#fff", weight: 2, fillColor: "#3a7bd5", fillOpacity: 1 }).addTo(map);
+    accuracyCircle = L.circle([lat, lon], { radius: accuracy, color: "#1d7e8a", weight: 1, fillOpacity: 0.1, interactive: false }).addTo(map);
+    playerMarker = L.marker([lat, lon], { icon: blockIcon("me"), keyboard: false, interactive: false }).addTo(map);
   } else {
     accuracyCircle.setLatLng([lat, lon]).setRadius(accuracy);
     playerMarker.setLatLng([lat, lon]);
   }
-  if (first) map.setView([lat, lon], 17);
-  $("status").textContent = "GPS aktiv";
+  if (first) {
+    if (!state.target) map.setView([lat, lon], 17);
+    $("gps").hidden = true;
+    $("copyMe").hidden = false;
+    $("shareMe").hidden = false;
+    chat(`Position gefunden: ${formatCoords(state.player)}`, "green");
+  }
   renderF3();
   renderTarget();
 }
 
 function onPositionError(err) {
   const msg = { 1: "Standortzugriff verweigert.", 2: "Position nicht verfügbar.", 3: "GPS-Zeitüberschreitung." }[err.code];
-  $("status").textContent = msg || err.message;
+  chat(msg || err.message, "red");
+  $("gps").disabled = false;
 }
 
 // Kompass: iOS liefert webkitCompassHeading, Android deviceorientationabsolute (alpha gegen den Uhrzeigersinn).
@@ -215,17 +415,25 @@ async function startCompass() {
 }
 
 $("gps").addEventListener("click", () => {
-  if (!("geolocation" in navigator)) { $("status").textContent = "Kein GPS im Browser verfügbar."; return; }
-  if (!window.isSecureContext) { $("status").textContent = "GPS braucht HTTPS (oder localhost)."; return; }
-  $("status").textContent = "Suche Position …";
+  if (!("geolocation" in navigator)) { chat("Kein GPS im Browser verfügbar.", "red"); return; }
+  if (!window.isSecureContext) { chat("GPS braucht HTTPS (oder localhost).", "red"); return; }
+  chat("Suche Position …", "gray");
   $("gps").disabled = true;
   startCompass();
-  navigator.geolocation.watchPosition(onPosition, (err) => { onPositionError(err); $("gps").disabled = false; }, {
-    enableHighAccuracy: true, maximumAge: 2000, timeout: 20000,
-  });
+  navigator.geolocation.watchPosition(onPosition, onPositionError, { enableHighAccuracy: true, maximumAge: 2000, timeout: 20000 });
 });
 
+// ---------- Start ----------
 renderF3();
+const shared = location.search ? parseCoords(location.search) : null;
+if (shared) {
+  $("paste").value = formatCoords(shared);
+  setTarget(shared, { pan: true });
+  chat(`Geteilter Punkt: ${formatCoords(shared)}`, "yellow");
+  chat("Tippe auf GPS starten, um die Entfernung zu sehen.", "gray");
+} else {
+  chat("Willkommen in Münster! Der Spawn ist am Dom.", "yellow");
+}
 </script>
 </body>
 </html>

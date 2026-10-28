@@ -66,3 +66,39 @@ export function facing(heading) {
 export function nether(x, z) {
   return { x: Math.floor(x / 8), z: Math.floor(z / 8) };
 }
+
+// Weltgrenze in Minecraft Java.
+const WORLD_BORDER = 30_000_000;
+
+// Liest Koordinaten aus beliebigem eingefügtem Text, z. B. "639 60 736", "639, 736",
+// "X: 639 Z: 736", "XYZ: 639 / 60 / 736", "/tp @s 639 ~ 736" oder einem Teilen-Link (?x=639&z=736).
+// Ergebnis: { x, y, z } mit y = null, wenn keine Höhe angegeben ist; null, wenn nichts Eindeutiges drinsteht.
+export function parseCoords(text) {
+  if (typeof text !== "string") return null;
+  const t = text.replace(/[−–]/g, "-");
+  const num = (s) => Math.round(parseFloat(s));
+  const valid = (c) => c && [c.x, c.z].every((v) => Number.isFinite(v) && Math.abs(v) <= WORLD_BORDER) ? c : null;
+
+  // Beschriftete Werte: "x=639", "X: 639"
+  const labeled = {};
+  for (const m of t.matchAll(/(?:^|[^a-z])([xyz])\s*[:=]\s*(-?\d+(?:\.\d+)?)/gi)) {
+    const axis = m[1].toLowerCase();
+    if (!(axis in labeled)) labeled[axis] = num(m[2]);
+  }
+  if ("x" in labeled && "z" in labeled) return valid({ x: labeled.x, y: labeled.y ?? null, z: labeled.z });
+
+  // Ganzer F3-Block eingefügt: nur die XYZ-Zeile zählt
+  const xyzLine = t.split(/\r?\n/).find((l) => /xyz\s*:/i.test(l));
+  const tokens = (xyzLine ?? t).match(/~|-?\d+(?:\.\d+)?/g) ?? [];
+  const val = (s) => (s === "~" ? null : num(s));
+  if (tokens.length === 3 && tokens[0] !== "~" && tokens[2] !== "~") {
+    return valid({ x: val(tokens[0]), y: val(tokens[1]), z: val(tokens[2]) });
+  }
+  if (tokens.length === 2 && !tokens.includes("~")) return valid({ x: val(tokens[0]), y: null, z: val(tokens[1]) });
+  return null;
+}
+
+// Text zum Kopieren, passend für /tp. Unbekannte Höhe wird zu "~".
+export function formatCoords({ x, y, z }) {
+  return `${x} ${y ?? "~"} ${z}`;
+}
