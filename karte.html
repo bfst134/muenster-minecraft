@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#5b8731">
+<title>Minecraft-Karte</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;600&family=VT323&display=swap">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.11.0/proj4.js"></script>
+<style>
+  :root {
+    --pixel: "Pixelify Sans", ui-monospace, Menlo, monospace;
+    --digits: "VT323", ui-monospace, Menlo, monospace;
+    --shadow: #3f3f3f;
+    --f3-bg: rgba(80, 80, 80, 0.62);
+    --btn: #727272; --btn-hi: #a8a8a8; --btn-lo: #4a4a4a; --btn-hover: #7d86b4;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { background: #3b2a1d; color: #fff; font: 17px/1.3 var(--pixel); display: flex; flex-direction: column; }
+  #stage { position: relative; flex: 1; min-height: 0; }
+  #map, #labels { position: absolute; inset: 0; }
+  #map { background: #7fb238; }
+  /* Beschriftungen liegen als zweite, scharfe Karte darüber und fangen keine Berührungen ab */
+  #labels { pointer-events: none; z-index: 1; }
+  /* Der Kern des Effekts: Karte in niedriger Auflösung zeichnen, ohne Glättung hochskalieren */
+  #map.pixel .maplibregl-canvas { image-rendering: pixelated; image-rendering: crisp-edges; }
+  .maplibregl-ctrl-attrib { font: 12px var(--pixel); }
+  .maplibregl-ctrl-top-right { z-index: 3; }
+
+  #f3 {
+    position: absolute; top: max(8px, env(safe-area-inset-top)); left: 8px; right: 56px; z-index: 2;
+    pointer-events: none; font: 19px/1.15 var(--digits); text-shadow: 2px 2px 0 var(--shadow);
+  }
+  #f3 div { width: fit-content; max-width: 100%; background: var(--f3-bg); padding: 0 4px; }
+
+  #bar {
+    display: grid; gap: 8px; padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+    background: #866043; border-top: 4px solid #5b8731;
+  }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .label { color: #ffff55; font-weight: 600; text-shadow: 2px 2px 0 var(--shadow); min-width: 4.5em; }
+  button, a.btn {
+    font: 600 16px var(--pixel); color: #fff; text-decoration: none; cursor: pointer; text-shadow: 2px 2px 0 var(--shadow);
+    background: var(--btn); border: 2px solid #000; border-radius: 0;
+    box-shadow: inset 2px 2px 0 var(--btn-hi), inset -2px -3px 0 var(--btn-lo);
+    padding: 8px 12px; min-height: 40px; display: inline-flex; align-items: center;
+  }
+  button:hover, a.btn:hover { background: var(--btn-hover); }
+  button[aria-pressed="true"] { background: #3d8a26; box-shadow: inset 2px 2px 0 #7fd45a, inset -2px -3px 0 #24561a; }
+
+  .block { width: 18px; height: 18px; border: 2px solid #000; }
+  .block.spawn { background: #f5c842; box-shadow: inset 2px 2px 0 #fff3a8, inset -2px -2px 0 #b8860b; }
+  .block.target { background: #d33a2a; box-shadow: inset 2px 2px 0 #ff9a8a, inset -2px -2px 0 #7a1a10; }
+</style>
+</head>
+<body>
+<main id="stage">
+  <div id="map" class="pixel" aria-label="Karte von Münster im Minecraft-Stil"></div>
+  <div id="labels" aria-hidden="true"></div>
+  <div id="f3" aria-live="polite"></div>
+</main>
+<section id="bar">
+  <div class="row" role="group" aria-label="Kartenstil">
+    <span class="label">Karte</span>
+    <button type="button" data-style="mc" aria-pressed="true">Minecraft</button>
+    <button type="button" data-style="normal" aria-pressed="false">Normal</button>
+  </div>
+  <div class="row" role="group" aria-label="Pixelgröße">
+    <span class="label">Pixel</span>
+    <button type="button" data-px="1.5" aria-pressed="false">Fein</button>
+    <button type="button" data-px="2" aria-pressed="true">Mittel</button>
+    <button type="button" data-px="3" aria-pressed="false">Grob</button>
+    <a class="btn" href="./">Zur App</a>
+  </div>
+</section>
+
+<script type="module">
+import { CONFIG, createConverter, formatCoords } from "./coords.js";
+
+const conv = createConverter(proj4);
+const $ = (id) => document.getElementById(id);
+
+// ---------- Blockfarben, Aufbau angelehnt an den OSM-Standardstil ----------
+const C = {
+  grass: "#7fb238", park: "#8cc04a", leaves: "#2f6b1f", farmland: "#c9c26a", sand: "#e8d998",
+  wetland: "#5f9a6a", water: "#3f76e4", cemetery: "#6f9a52", sports: "#5f9a34", track: "#b5553c",
+  residential: "#cdc7bb",   // heller Andesit
+  commercial: "#dcc0b4",    // Granit
+  industrial: "#cbb7cc",    // Purpur
+  education: "#efe2a8",     // Endstein
+  plaza: "#e2dccd",
+  brick: "#9a5a48", brickShadow: "#5e3328",
+  casing: "#3b3229",
+  motorway: "#c4543b",      // rote Terrakotta
+  primary: "#e08a3c",       // orange Terrakotta
+  secondary: "#e6cf6a",     // Sandstein
+  minor: "#f1ece0",         // Quarz
+  path: "#a5854c", cycleway: "#3f63c9", rail: "#4a4a4a", railTie: "#b0b0b0",
+};
+
+// ---------- Selbst erzeugte Blocktexturen (8×8 Pixel) ----------
+function rng(seed) { return () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32); }
+function hex(c) { return [1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16)); }
+function pattern(seed, pick) {
+  const n = 8, data = new Uint8Array(n * n * 4), r = rng(seed);
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) data.set([...hex(pick(x, y, r)), 255], (y * n + x) * 4);
+  return { width: n, height: n, data };
+}
+const from = (cols) => (x, y, r) => cols[Math.floor(r() * cols.length)];
+const PATTERNS = {
+  "tex-grass": pattern(3, from(["#7fb238", "#7fb238", "#74a632", "#8cc03f", "#6a9a2c"])),
+  "tex-park": pattern(4, from(["#8cc04a", "#8cc04a", "#80b442", "#98cc55", "#76a83c"])),
+  "tex-leaves": pattern(5, from(["#2f6b1f", "#2f6b1f", "#3a7d27", "#24561a", "#1c4514"])),
+  "tex-water": pattern(9, (x, y, r) => ((y + Math.floor(x / 3)) % 4 === 0 && r() > 0.3 ? "#5a8cf0" : r() > 0.5 ? "#3f76e4" : "#3a6fd8")),
+  // Backstein wie in Münster: Fugen in Zeile 3 und 7, versetzte Stoßfugen
+  "tex-bricks": pattern(13, (x, y, r) => {
+    if (y % 4 === 3 || x === (y < 4 ? 0 : 4)) return "#8c8279";
+    return r() > 0.3 ? "#9a5a48" : r() > 0.5 ? "#a86450" : "#8a4e3e";
+  }),
+  "tex-sand": pattern(19, from(["#e8d998", "#ded08c", "#f0e2a6"])),
+  "tex-farmland": pattern(23, (x, y, r) => (y % 3 === 0 ? "#8a6a40" : r() > 0.4 ? "#c9c26a" : "#b8b05c")),
+  "tex-andesite": pattern(29, from(["#cdc7bb", "#cdc7bb", "#c4beb2", "#d6d0c4"])),
+  "tex-plaza": pattern(31, (x, y, r) => (x % 4 === 0 || y % 4 === 0 ? "#d2cbbb" : r() > 0.5 ? "#e2dccd" : "#e8e2d4")),
+};
+
+// ---------- Hilfen für den Stil ----------
+const texOpacity = ["interpolate", ["linear"], ["zoom"], 15.5, 0, 16.5, 1];
+const notTunnel = ["match", ["get", "brunnel"], ["tunnel"], false, true];
+const isLine = ["match", ["geometry-type"], ["LineString", "MultiLineString"], true, false];
+const cls = (...c) => ["match", ["get", "class"], c, true, false];
+// Breite in CSS-Pixeln je Zoomstufe, grob wie im OSM-Standardstil
+const width = (...stops) => ["interpolate", ["exponential", 1.4], ["zoom"], ...stops];
+const name = ["coalesce", ["get", "name:de"], ["get", "name"]];
+
+function fill(id, sourceLayer, filter, color, extra = {}) {
+  return { id, type: "fill", source: "omt", "source-layer": sourceLayer, filter, paint: { "fill-color": color, "fill-antialias": false }, ...extra };
+}
+function texture(id, sourceLayer, filter, tex) {
+  return { id, type: "fill", source: "omt", "source-layer": sourceLayer, filter, minzoom: 15.5,
+    paint: { "fill-pattern": tex, "fill-opacity": texOpacity, "fill-antialias": false } };
+}
+// stops: [zoom, Breite, zoom, Breite, …]; der Rand ist an jeder Stufe 2 px breiter
+function road(id, filter, color, stops, minzoom = 0) {
+  const casing = stops.map((v, i) => (i % 2 ? v + 2 : v));
+  return [
+    { id: `${id}-casing`, type: "line", source: "omt", "source-layer": "transportation", minzoom, filter: ["all", notTunnel, isLine, filter],
+      layout: { "line-cap": "butt", "line-join": "miter" }, paint: { "line-color": C.casing, "line-width": width(...casing) } },
+    { id, type: "line", source: "omt", "source-layer": "transportation", minzoom, filter: ["all", notTunnel, isLine, filter],
+      layout: { "line-cap": "butt", "line-join": "miter" }, paint: { "line-color": color, "line-width": width(...stops) } },
+  ];
+}
+
+// ---------- Kartenebenen: Flächen, Wasser, Gebäude, Straßen ----------
+const mcLayers = [
+  { id: "bg", type: "background", paint: { "background-color": C.grass } },
+  { id: "bg-tex", type: "background", minzoom: 15.5, paint: { "background-pattern": "tex-grass", "background-opacity": texOpacity } },
+
+  fill("landuse-residential", "landuse", cls("residential", "suburb", "quarter", "neighbourhood"), C.residential),
+  texture("landuse-residential-tex", "landuse", cls("residential", "suburb", "quarter", "neighbourhood"), "tex-andesite"),
+  fill("landuse-commercial", "landuse", cls("commercial", "retail"), C.commercial),
+  fill("landuse-industrial", "landuse", cls("industrial", "garages", "railway", "quarry", "military", "dam"), C.industrial),
+  fill("landuse-education", "landuse", cls("school", "university", "college", "kindergarten", "hospital", "library"), C.education),
+  fill("landcover-farmland", "landcover", cls("farmland"), C.farmland),
+  texture("landcover-farmland-tex", "landcover", cls("farmland"), "tex-farmland"),
+  fill("landcover-grass", "landcover", cls("grass"), C.grass),
+  fill("park", "park", ["match", ["geometry-type"], ["Polygon", "MultiPolygon"], true, false], C.park),
+  texture("park-tex", "park", ["match", ["geometry-type"], ["Polygon", "MultiPolygon"], true, false], "tex-park"),
+  fill("landuse-cemetery", "landuse", cls("cemetery"), C.cemetery),
+  fill("landcover-wood", "landcover", cls("wood"), C.leaves),
+  texture("landcover-wood-tex", "landcover", cls("wood"), "tex-leaves"),
+  fill("landcover-wetland", "landcover", cls("wetland"), C.wetland),
+  fill("landcover-sand", "landcover", cls("sand"), C.sand),
+  texture("landcover-sand-tex", "landcover", cls("sand"), "tex-sand"),
+  fill("landuse-sports", "landuse", cls("pitch", "stadium", "playground"), C.sports),
+  fill("landuse-track", "landuse", cls("track"), C.track),
+
+  fill("water", "water", notTunnel, C.water),
+  texture("water-tex", "water", notTunnel, "tex-water"),
+  { id: "waterway", type: "line", source: "omt", "source-layer": "waterway", filter: notTunnel,
+    paint: { "line-color": C.water, "line-width": width(...[[10, 1.5, 0.5], [14, 4, 1.5], [16, 10, 2.5], [18, 30, 8]]
+      .flatMap(([z, river, stream]) => [z, ["match", ["get", "class"], ["river", "canal"], river, stream]])) } },
+
+  // Plätze und Fußgängerzonen als Flächen
+  fill("road-area", "transportation", ["match", ["geometry-type"], ["Polygon", "MultiPolygon"], true, false], C.plaza),
+  texture("road-area-tex", "transportation", ["match", ["geometry-type"], ["Polygon", "MultiPolygon"], true, false], "tex-plaza"),
+
+  // Gebäude als Backstein mit Schatten nach unten, wie ein Block mit Höhe
+  fill("building-shadow", "building", ["!=", ["get", "hide_3d"], true], C.brickShadow,
+    { minzoom: 14, paint: { "fill-color": C.brickShadow, "fill-antialias": false, "fill-translate": [0, 2] } }),
+  fill("building", "building", ["!=", ["get", "hide_3d"], true], C.brick, { minzoom: 13 }),
+  texture("building-tex", "building", ["!=", ["get", "hide_3d"], true], "tex-bricks"),
+  { id: "building-edge", type: "line", source: "omt", "source-layer": "building", minzoom: 15.5, filter: ["!=", ["get", "hide_3d"], true],
+    paint: { "line-color": C.brickShadow, "line-width": width(15.5, 1, 18, 2.5) } },
+
+  // Wege: Trampelpfad gestrichelt, Radwege in Lapisblau
+  { id: "path", type: "line", source: "omt", "source-layer": "transportation", minzoom: 14,
+    filter: ["all", notTunnel, isLine, cls("path", "track"), ["!=", ["get", "subclass"], "cycleway"]],
+    paint: { "line-color": C.path, "line-width": width(14, 1.5, 16, 2.5, 18, 5), "line-dasharray": [2, 1] } },
+  { id: "cycleway", type: "line", source: "omt", "source-layer": "transportation", minzoom: 13,
+    filter: ["all", notTunnel, isLine, cls("path"), ["==", ["get", "subclass"], "cycleway"]],
+    paint: { "line-color": C.cycleway, "line-width": width(13, 1.5, 16, 2.5, 18, 5), "line-dasharray": [2, 1] } },
+
+  // Straßen, von klein nach groß, jeweils mit dunklem Rand
+  ...road("road-service", cls("service"), C.minor, [14, 1, 16, 3, 18, 9], 14),
+  ...road("road-minor", cls("minor"), C.minor, [12, 0.8, 14, 2.5, 16, 7, 18, 18], 12),
+  ...road("road-tertiary", cls("tertiary"), C.minor, [10, 1, 13, 2.5, 16, 9, 18, 22]),
+  ...road("road-secondary", cls("secondary"), C.secondary, [9, 1, 13, 3, 16, 10, 18, 24]),
+  ...road("road-primary", cls("primary"), C.primary, [8, 1, 13, 3.5, 16, 11, 18, 26]),
+  ...road("road-motorway", cls("motorway", "trunk"), C.motorway, [6, 1, 13, 4, 16, 12, 18, 28]),
+
+  // Schienen: dunkel mit hellen Schwellen
+  { id: "rail", type: "line", source: "omt", "source-layer": "transportation", filter: ["all", notTunnel, cls("rail", "transit")],
+    paint: { "line-color": C.rail, "line-width": width(10, 1, 14, 2.5, 18, 6) } },
+  { id: "rail-ties", type: "line", source: "omt", "source-layer": "transportation", minzoom: 13, filter: ["all", notTunnel, cls("rail", "transit")],
+    paint: { "line-color": C.railTie, "line-width": width(13, 1, 18, 3), "line-dasharray": [2, 2] } },
+];
+
+const omtSource = { type: "vector", url: "https://tiles.openfreemap.org/planet",
+  attribution: '<a href="https://openfreemap.org" target="_blank">OpenFreeMap</a> © <a href="https://www.openmaptiles.org/" target="_blank">OpenMapTiles</a> Daten von <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a>' };
+
+const style = {
+  version: 8,
+  sources: {
+    omt: omtSource,
+    osm: { type: "raster", tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"], tileSize: 256, maxzoom: 19,
+      attribution: '© <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a>' },
+  },
+  layers: [...mcLayers, { id: "osm", type: "raster", source: "osm", layout: { visibility: "none" } }],
+};
+
+// ---------- Beschriftungen: scharf, weiß mit dunklem Rand wie Namensschilder ----------
+const tag = { "text-color": "#ffffff", "text-halo-color": "rgba(30, 30, 30, 0.85)", "text-halo-width": 1.6 };
+const labelStyle = {
+  version: 8,
+  glyphs: "https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf",
+  sources: { omt: omtSource },
+  layers: [
+    { id: "street-names", type: "symbol", source: "omt", "source-layer": "transportation_name", minzoom: 14.5,
+      filter: cls("primary", "secondary", "tertiary", "minor", "trunk", "pedestrian", "service", "path"),
+      layout: { "symbol-placement": "line", "text-field": name, "text-font": ["Noto Sans Bold"], "text-size": width(14.5, 10, 18, 14),
+        "text-max-angle": 30, "text-padding": 4 }, paint: tag },
+    { id: "water-names", type: "symbol", source: "omt", "source-layer": "water_name", minzoom: 12,
+      layout: { "text-field": name, "text-font": ["Noto Sans Italic"], "text-size": 13 },
+      paint: { "text-color": "#d6e4ff", "text-halo-color": "rgba(20, 40, 110, 0.9)", "text-halo-width": 1.6 } },
+    { id: "waterway-names", type: "symbol", source: "omt", "source-layer": "waterway", minzoom: 13,
+      layout: { "symbol-placement": "line", "text-field": name, "text-font": ["Noto Sans Italic"], "text-size": 12 },
+      paint: { "text-color": "#d6e4ff", "text-halo-color": "rgba(20, 40, 110, 0.9)", "text-halo-width": 1.6 } },
+    { id: "park-names", type: "symbol", source: "omt", "source-layer": "park", minzoom: 14,
+      layout: { "text-field": name, "text-font": ["Noto Sans Italic"], "text-size": 12, "text-max-width": 8 },
+      paint: { "text-color": "#e8ffd0", "text-halo-color": "rgba(30, 70, 20, 0.9)", "text-halo-width": 1.6 } },
+    { id: "poi-names", type: "symbol", source: "omt", "source-layer": "poi", minzoom: 16, filter: ["<=", ["get", "rank"], 20],
+      layout: { "text-field": name, "text-font": ["Noto Sans Regular"], "text-size": 12, "text-max-width": 8, "text-padding": 6 },
+      paint: { ...tag, "text-color": "#ffff9a" } },
+    { id: "housenumbers", type: "symbol", source: "omt", "source-layer": "housenumber", minzoom: 17.5,
+      layout: { "text-field": ["get", "housenumber"], "text-font": ["Noto Sans Regular"], "text-size": 10 },
+      paint: { "text-color": "#f3dcd3", "text-halo-color": "rgba(60, 25, 15, 0.9)", "text-halo-width": 1.2 } },
+    { id: "places", type: "symbol", source: "omt", "source-layer": "place",
+      filter: cls("city", "town", "village", "suburb", "quarter", "neighbourhood", "hamlet"),
+      layout: { "text-field": name, "text-font": ["Noto Sans Bold"], "text-max-width": 8, "text-transform": "uppercase", "text-letter-spacing": 0.08,
+        "text-size": ["match", ["get", "class"], "city", 18, "town", 16, "suburb", 14, 12] },
+      paint: { ...tag, "text-halo-width": 2 } },
+  ],
+};
+
+// ---------- Karten ----------
+const state = { px: 2, style: "mc" };
+const view = { center: [CONFIG.origin.lon, CONFIG.origin.lat], zoom: 14.5 };
+const map = new maplibregl.Map({
+  container: "map", style, ...view, maxZoom: 19.5, minZoom: 10,
+  pixelRatio: 1 / state.px, attributionControl: { compact: true }, dragRotate: false, pitchWithRotate: false,
+});
+const labels = new maplibregl.Map({
+  container: "labels", style: labelStyle, ...view, interactive: false, attributionControl: false,
+});
+map.touchZoomRotate.disableRotation();
+map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
+map.on("move", () => labels.jumpTo({ center: map.getCenter(), zoom: map.getZoom() }));
+map.on("error", (ev) => console.error("Karte:", ev.error?.message ?? ev));
+labels.on("error", (ev) => console.error("Beschriftung:", ev.error?.message ?? ev));
+window.__map = map; // zum Debuggen in der Konsole
+
+// Texturpixel = Kartenpixel: das Bild bekommt dieselbe Pixeldichte wie die Karte
+function installPatterns() {
+  for (const [id, img] of Object.entries(PATTERNS)) {
+    if (map.hasImage(id)) map.removeImage(id);
+    map.addImage(id, img, { pixelRatio: 1 / state.px });
+  }
+}
+map.on("styleimagemissing", (ev) => {
+  if (PATTERNS[ev.id] && !map.hasImage(ev.id)) map.addImage(ev.id, PATTERNS[ev.id], { pixelRatio: 1 / state.px });
+});
+
+const blockEl = (kind) => Object.assign(document.createElement("div"), { className: `block ${kind}` });
+new maplibregl.Marker({ element: blockEl("spawn") }).setLngLat([CONFIG.origin.lon, CONFIG.origin.lat]).addTo(map);
+const target = new maplibregl.Marker({ element: blockEl("target") });
+
+let tapped = [];
+function renderF3() {
+  const mPerPx = (156543.03 * Math.cos((map.getCenter().lat * Math.PI) / 180)) / 2 ** map.getZoom();
+  const lines = [`Münster 1:1 · Zoom ${map.getZoom().toFixed(1)}`];
+  if (state.style === "mc") lines.push(`1 Kartenpixel ≈ ${(mPerPx * state.px).toFixed(1)} Blöcke`);
+  $("f3").innerHTML = [...lines, ...tapped].map((l) => `<div>${l}</div>`).join("");
+}
+map.on("move", renderF3);
+map.on("click", (ev) => {
+  const p = conv.toMinecraft(ev.lngLat.lat, ev.lngLat.lng);
+  target.setLngLat(ev.lngLat).addTo(map);
+  tapped = [`Ziel: ${formatCoords({ x: p.x, y: null, z: p.z })}`];
+  renderF3();
+});
+
+// ---------- Umschalter ----------
+function setPressed(attr, value) {
+  document.querySelectorAll(`[data-${attr}]`).forEach((b) => b.setAttribute("aria-pressed", String(b.dataset[attr] === String(value))));
+}
+document.querySelectorAll("[data-style]").forEach((b) => b.addEventListener("click", () => {
+  state.style = b.dataset.style;
+  const mc = state.style === "mc";
+  for (const l of mcLayers) map.setLayoutProperty(l.id, "visibility", mc ? "visible" : "none");
+  map.setLayoutProperty("osm", "visibility", mc ? "none" : "visible");
+  map.setPixelRatio(mc ? 1 / state.px : window.devicePixelRatio);
+  $("map").classList.toggle("pixel", mc);
+  $("labels").hidden = !mc;
+  setPressed("style", state.style);
+  renderF3();
+}));
+document.querySelectorAll("[data-px]").forEach((b) => b.addEventListener("click", () => {
+  state.px = Number(b.dataset.px);
+  if (state.style === "mc") map.setPixelRatio(1 / state.px);
+  installPatterns();
+  setPressed("px", state.px);
+  renderF3();
+}));
+
+renderF3();
+</script>
+</body>
+</html>
