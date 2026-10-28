@@ -42,5 +42,6 @@ sed -i '' -E 's#\.js\?v=[0-9a-z]+"#.js?v=NEU"#g' index.html test.html mcmap.js
 ## Konventionen
 
 X = Ost (+), Z = Süd (+), Nord = −Z. Y = Höhe über NN. Die ellipsoidische GPS-Höhe wird um 44,2 m korrigiert (GCG2016 am Dom).
+Ausnahme iPhone/iPad: Safari liefert dort schon die Höhe über dem Meeresspiegel, die Korrektur entfällt.
 Die GPS-Höhe ist auf dem Handy oft auf ±10–30 m ungenau. Später soll das DGM NRW eine genauere Höhe liefern.
 Im Nether gelten die Koordinaten geteilt durch 8. Intern rechnet die App immer in Oberwelt-Koordinaten.

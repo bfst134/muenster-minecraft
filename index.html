@@ -89,14 +89,22 @@
   @media (pointer: coarse) { .maplibregl-ctrl-group:has(.maplibregl-ctrl-zoom-in) { display: none; } }
 
   /* Fortschritt-Pop-up oben, gleitet herein */
+  /* Versteckt: ganz über den oberen Rand samt Statusleiste geschoben und unsichtbar,
+     damit im Vollbild vom Homescreen nichts unter der Statusleiste hervorschaut */
   #toast {
     position: absolute; top: max(8px, env(safe-area-inset-top)); left: 50%; z-index: 8;
-    width: min(300px, calc(100% - 16px)); transform: translate(-50%, -140%); transition: transform 0.35s ease;
+    width: min(300px, calc(100% - 16px));
+    transform: translate(-50%, calc(-100% - max(8px, env(safe-area-inset-top)) - 8px));
+    visibility: hidden; transition: transform 0.35s ease, visibility 0s linear 0.35s;
     display: flex; align-items: center; gap: 10px; padding: 8px 10px;
     background: #212121; border: 2px solid #000; box-shadow: inset 2px 2px 0 #555, inset -2px -2px 0 #111;
     pointer-events: none; text-shadow: 2px 2px 0 var(--shadow);
   }
-  #toast.show { transform: translate(-50%, 0); }
+  #toast.show { transform: translate(-50%, 0); visibility: visible; transition: transform 0.35s ease, visibility 0s; }
+
+  /* Zurück zur eigenen Position, unten rechts über der Quellenangabe */
+  .maplibregl-ctrl-group button.locate { display: grid; place-items: center; padding: 0; width: 44px; height: 44px; }
+  .maplibregl-ctrl-group button.locate[aria-pressed="true"] { background-color: #2f7f8c; box-shadow: inset 2px 2px 0 #7fd8e3, inset -2px -3px 0 #1b4d55; }
   #toast .head { color: var(--yellow); font-size: 15px; }
   #toast .title { color: #fff; font-weight: 600; }
   @media (prefers-reduced-motion: reduce) { #toast { transition: none; } }
@@ -339,14 +347,14 @@
 </div>
 
 <script type="module">
-import { CONFIG, createConverter, facing, nether, fromNether, parseCoords, formatCoords } from "./coords.js?v=20261028c";
-import { createMcMap, PIXEL_SIZES } from "./mcmap.js?v=20261028c";
-import { icon } from "./icons.js?v=20261028c";
-import { biomeFor } from "./biome.js?v=20261028c";
-import { sunElevation, mcTicks, dayPhase, skyTint } from "./sky.js?v=20261028c";
-import { describeWeather, fetchWeather, WeatherFx } from "./weather.js?v=20261028c";
-import { COLORS, loadWaypoints, saveWaypoints, addWaypoint, removeWaypoint } from "./waypoints.js?v=20261028c";
-import { ACHIEVEMENTS, placesReached, loadUnlocked, saveUnlocked } from "./achievements.js?v=20261028c";
+import { CONFIG, createConverter, facing, nether, fromNether, parseCoords, formatCoords } from "./coords.js?v=20261028d";
+import { createMcMap, PIXEL_SIZES } from "./mcmap.js?v=20261028d";
+import { icon } from "./icons.js?v=20261028d";
+import { biomeFor } from "./biome.js?v=20261028d";
+import { sunElevation, mcTicks, dayPhase, skyTint } from "./sky.js?v=20261028d";
+import { describeWeather, fetchWeather, WeatherFx } from "./weather.js?v=20261028d";
+import { COLORS, loadWaypoints, saveWaypoints, addWaypoint, removeWaypoint } from "./waypoints.js?v=20261028d";
+import { ACHIEVEMENTS, placesReached, loadUnlocked, saveUnlocked } from "./achievements.js?v=20261028d";
 
 const conv = createConverter(proj4);
 const $ = (id) => document.getElementById(id);
@@ -663,6 +671,7 @@ function renderTarget() {
 }
 
 function setTarget(c, { pan = false } = {}) {
+  if (pan) setFollow(false);
   const { lat, lon } = conv.fromMinecraft(c.x, c.z);
   state.target = { x: c.x, y: c.y ?? null, z: c.z, lat, lon };
   if (!targetMarker) targetMarker = mc.addMarker(blockEl("target"), [lon, lat]);
@@ -909,6 +918,24 @@ if (navigator.clipboard?.readText) {
   });
 }
 
+// ---------- Zurück zur eigenen Position ----------
+// Nach dem Antippen läuft die Karte mit, bis man sie selbst verschiebt.
+const locate = Object.assign(document.createElement("div"), { className: "maplibregl-ctrl maplibregl-ctrl-group" });
+locate.hidden = true;
+locate.innerHTML = `<button type="button" class="locate" aria-label="Zur eigenen Position" title="Zur eigenen Position" aria-pressed="false">${icon("gps")}</button>`;
+map.addControl({ onAdd: () => locate, onRemove() {} }, "bottom-right");
+function setFollow(on) {
+  state.follow = on;
+  locate.querySelector("button").setAttribute("aria-pressed", String(on));
+}
+function centerOnPlayer() {
+  if (!state.player) return;
+  map.easeTo({ center: [state.player.lon, state.player.lat], zoom: Math.max(map.getZoom(), 16.5) });
+}
+locate.querySelector("button").addEventListener("click", () => { setFollow(true); centerOnPlayer(); });
+// Nur echte Gesten beenden das Mitlaufen, nicht die eigenen easeTo-Bewegungen
+map.on("dragstart", () => setFollow(false));
+
 map.on("click", (ev) => {
   const p = conv.toMinecraft(ev.lngLat.lat, ev.lngLat.lng);
   const c = { x: p.x, y: null, z: p.z };
@@ -917,23 +944,32 @@ map.on("click", (ev) => {
 });
 
 // ---------- GPS und Kompass ----------
+// iOS liefert die Höhe schon über dem Meeresspiegel (Core Location), andere Systeme die rohe GPS-Höhe
+// über dem Ellipsoid, die noch um die Geoidundulation korrigiert werden muss.
+const ALTITUDE_IS_MSL = /iPhone|iPad|iPod/.test(navigator.userAgent)
+  || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+
 function onPosition(pos) {
   const { latitude: lat, longitude: lon, altitude, accuracy, altitudeAccuracy } = pos.coords;
   const p = conv.toMinecraft(lat, lon);
   const first = !state.player;
-  state.player = { ...p, y: conv.yFromEllipsoidal(altitude), lat, lon, accuracy, altitudeAccuracy };
+  const y = ALTITUDE_IS_MSL ? conv.yFromNN(altitude) : conv.yFromEllipsoidal(altitude);
+  state.player = { ...p, y, lat, lon, accuracy, altitudeAccuracy };
   if (!playerMarker) playerMarker = mc.addMarker(playerEl(), [lon, lat]);
   else playerMarker.setLngLat([lon, lat]);
   mc.setAccuracy(lat, lon, accuracy);
   updateBiome();
   checkPositionAchievements();
   if (first) {
-    if (!state.target) map.easeTo({ center: [lon, lat], zoom: 17 });
+    locate.hidden = false;
+    if (!state.target) { map.easeTo({ center: [lon, lat], zoom: 17 }); setFollow(true); }
     $("gps").hidden = true;
     $("copyMe").hidden = false;
     $("shareMe").hidden = false;
     $("saveMe").hidden = false;
     chat(`Position gefunden: ${fmt(state.player)}`, "green");
+  } else if (state.follow) {
+    map.easeTo({ center: [lon, lat], duration: 500 });
   }
   renderF3();
   renderTarget();
