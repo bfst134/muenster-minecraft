@@ -18,6 +18,7 @@ import { CONFIG, createConverter, facing, nether, fromNether, parseCoords, forma
 import { pointInFeature, biomeFor } from "./biome.js";
 import { sunElevation, mcTicks, dayPhase, skyTint } from "./sky.js";
 import { describeWeather } from "./weather.js";
+import { loadWaypoints, saveWaypoints, addWaypoint, removeWaypoint } from "./waypoints.js";
 
 const results = [];
 function test(name, fn) {
@@ -208,6 +209,25 @@ test("Wettercodes werden zu Text und Effekt", () => {
   eq(describeWeather(95).fx, "storm");
   eq(describeWeather(45).fx, "fog");
   eq(describeWeather(1234).label, "Unbekannt");
+});
+
+test("Wegpunkte anlegen, speichern, laden und löschen", () => {
+  const mem = { data: {}, getItem(k) { return this.data[k] ?? null; }, setItem(k, v) { this.data[k] = v; } };
+  let list = loadWaypoints(mem);
+  eq(list.length, 0, "leer am Anfang");
+  list = addWaypoint(list, { name: "  Zuhause  ", x: 12, y: 58, z: -34, color: "blau" });
+  list = addWaypoint(list, { name: "", x: 1, z: 2, color: "gibtsnicht" });
+  eq(list[0].name, "Zuhause", "Name getrimmt");
+  eq(list[1].name, "Wegpunkt 2", "Standardname");
+  eq(list[1].color, "rot", "unbekannte Farbe → rot");
+  eq(addWaypoint([], { name: "x".repeat(40), x: 0, z: 0 })[0].name.length, 24, "Name gekürzt");
+  saveWaypoints(list, mem);
+  const loaded = loadWaypoints(mem);
+  eq(loaded.length, 2, "geladen");
+  eq(loaded[0].z, -34);
+  eq(removeWaypoint(loaded, loaded[0].id).length, 1, "gelöscht");
+  mem.data["mc-waypoints"] = "kaputt{";
+  eq(loadWaypoints(mem).length, 0, "kaputte Daten → leere Liste");
 });
 
 const failed = results.filter((r) => !r.ok);

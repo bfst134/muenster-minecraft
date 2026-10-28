@@ -117,7 +117,7 @@
   .slot { background: var(--slot-bg); border: 2px solid #000; padding: 5px 6px 5px 10px; display: grid; gap: 4px; }
   .line { display: flex; align-items: center; gap: 8px; min-width: 0; }
   .label { color: var(--yellow); font-weight: 600; min-width: 2.4em; }
-  .coords { font: 28px/1 var(--digits); flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .coords { font: 26px/1 var(--digits); flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .tools { display: flex; gap: 4px; flex: none; }
   .sub { color: var(--gray); font-size: 13px; line-height: 1.25; flex: 1; min-width: 0; }
   .sub a { color: var(--aqua); }
@@ -142,23 +142,45 @@
   input::placeholder { color: #707070; }
   input:focus { outline: none; border-color: #fff; }
 
-  /* Einstellungen: abgedunkelter Hintergrund wie das Optionsmenü im Spiel */
-  #settings {
+  /* Dialoge: abgedunkelter Hintergrund wie das Optionsmenü im Spiel */
+  .dialog {
     position: fixed; inset: 0; z-index: 10; background: rgba(16, 16, 16, 0.72);
-    display: grid; place-items: center; padding: 16px;
+    display: grid; place-items: center; padding: 16px; overflow-y: auto;
+    text-shadow: 2px 2px 0 var(--shadow);
   }
-  #settings .box { width: min(100%, 360px); display: grid; gap: 14px; }
-  #settings h2 { margin: 0; text-align: center; font: 600 22px var(--pixel); }
-  #settings .group { display: grid; gap: 6px; }
-  #settings .group .row button { flex: 1; }
-  #settings .done { width: 100%; }
+  .dialog .box { width: min(100%, 360px); display: grid; gap: 14px; }
+  .dialog h2 { margin: 0; text-align: center; font: 600 22px var(--pixel); }
+  .dialog .group { display: grid; gap: 6px; }
+  .dialog .group .row button, .dialog .actions button { flex: 1; }
+  .dialog .done { width: 100%; }
+  .dialog .actions { display: flex; gap: 8px; }
+  #settings .box { gap: 10px; }
+
+  /* Wegpunkte */
+  .swatch { width: 40px; height: 40px; border: 2px solid #000; box-shadow: inset 2px 2px 0 rgba(255,255,255,.35), inset -2px -2px 0 rgba(0,0,0,.35); cursor: pointer; }
+  .swatch[aria-pressed="true"] { outline: 3px solid #fff; outline-offset: 1px; }
+  .wp-items { display: grid; gap: 6px; max-height: 55vh; overflow-y: auto; }
+  .wp-item { display: flex; align-items: center; gap: 8px; background: var(--slot-bg); border: 2px solid #000; padding: 6px; }
+  .wp-item .dot { width: 18px; height: 18px; border: 2px solid #000; flex: none; }
+  .wp-item .text { flex: 1; min-width: 0; }
+  .wp-item .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .wp-item .pos { font: 18px/1 var(--digits); color: var(--gray); }
+  .wp-empty { color: var(--gray); text-align: center; }
+  /* Keine eigene position: MapLibre setzt Marker absolut, das trägt auch die Kinder */
+  .wp-marker { width: 18px; height: 18px; pointer-events: auto; cursor: pointer; }
+  .wp-marker .block { position: absolute; inset: 0; }
+  .wp-marker .tag {
+    position: absolute; top: 21px; left: 50%; transform: translateX(-50%);
+    font: 16px/1 var(--digits); color: #fff; background: rgba(0, 0, 0, 0.6); padding: 1px 4px; white-space: nowrap;
+  }
 
   /* Blockige Marker */
   .block { width: 18px; height: 18px; border: 2px solid #000; }
   .block.spawn { background: #f5c842; box-shadow: inset 2px 2px 0 #fff3a8, inset -2px -2px 0 #b8860b; }
   .block.me { background: #3fc6d6; box-shadow: inset 2px 2px 0 #b5f3fa, inset -2px -2px 0 #1d7e8a; }
   /* Blickrichtung: Pfeil kreist um den eigenen Block */
-  .me-wrap { position: relative; width: 18px; height: 18px; }
+  .me-wrap { width: 18px; height: 18px; }
+  .me-wrap .block { position: absolute; inset: 0; }
   .me-wrap .heading {
     position: absolute; left: 50%; top: 50%; width: 46px; height: 46px; margin: -23px 0 0 -23px;
     display: flex; justify-content: center; pointer-events: none; transform: rotate(var(--heading, 0deg));
@@ -186,6 +208,7 @@
         <button id="gps" type="button" class="mc with-icon" data-icon="gps">GPS</button>
         <button id="copyMe" type="button" class="mc icon" data-icon="copy" aria-label="Eigene Koordinaten kopieren" hidden></button>
         <button id="shareMe" type="button" class="mc icon" data-icon="share" aria-label="Eigene Position teilen" hidden></button>
+        <button id="saveMe" type="button" class="mc icon" data-icon="star" aria-label="Eigene Position als Wegpunkt speichern" hidden></button>
       </span>
     </div>
   </div>
@@ -203,12 +226,39 @@
       <span class="tools">
         <button id="copyTarget" type="button" class="mc icon" data-icon="copy" aria-label="Ziel kopieren"></button>
         <button id="shareTarget" type="button" class="mc icon" data-icon="share" aria-label="Ziel teilen"></button>
+        <button id="saveTarget" type="button" class="mc icon" data-icon="star" aria-label="Ziel als Wegpunkt speichern"></button>
       </span>
     </div>
   </form>
 </section>
 
-<div id="settings" role="dialog" aria-modal="true" aria-labelledby="settingsTitle" hidden>
+<div id="wpSave" class="dialog" role="dialog" aria-modal="true" aria-labelledby="wpSaveTitle" hidden>
+  <form class="box" id="wpSaveForm" autocomplete="off">
+    <h2 id="wpSaveTitle">Wegpunkt speichern</h2>
+    <div class="group">
+      <span class="label">Name</span>
+      <input id="wpName" maxlength="24" enterkeyhint="done" aria-label="Name des Wegpunkts">
+    </div>
+    <div class="group">
+      <span class="label">Farbe</span>
+      <div class="row" id="wpColors"></div>
+    </div>
+    <div class="actions">
+      <button type="button" class="mc" id="wpCancel">Abbrechen</button>
+      <button type="submit" class="mc">Speichern</button>
+    </div>
+  </form>
+</div>
+
+<div id="wpList" class="dialog" role="dialog" aria-modal="true" aria-labelledby="wpListTitle" hidden>
+  <div class="box">
+    <h2 id="wpListTitle">Wegpunkte</h2>
+    <div id="wpItems" class="wp-items"></div>
+    <button type="button" class="mc done" id="wpListDone">Fertig</button>
+  </div>
+</div>
+
+<div id="settings" class="dialog" role="dialog" aria-modal="true" aria-labelledby="settingsTitle" hidden>
   <div class="box">
     <h2 id="settingsTitle">Einstellungen</h2>
     <div class="group">
@@ -265,6 +315,7 @@ import { icon } from "./icons.js";
 import { biomeFor } from "./biome.js";
 import { sunElevation, mcTicks, dayPhase, skyTint } from "./sky.js";
 import { describeWeather, fetchWeather, WeatherFx } from "./weather.js";
+import { COLORS, loadWaypoints, saveWaypoints, addWaypoint, removeWaypoint } from "./waypoints.js";
 
 const conv = createConverter(proj4);
 const $ = (id) => document.getElementById(id);
@@ -364,9 +415,11 @@ map.addControl({
     const el = document.createElement("div");
     el.className = "maplibregl-ctrl maplibregl-ctrl-group";
     el.innerHTML = `<button type="button" class="gear" aria-label="Einstellungen" title="Einstellungen">${icon("gear")}</button>`
-      + `<button type="button" class="gear" id="portal" aria-label="Dimension wechseln" title="Nether / Oberwelt">${icon("portal")}</button>`;
+      + `<button type="button" class="gear" id="portal" aria-label="Dimension wechseln" title="Nether / Oberwelt">${icon("portal")}</button>`
+      + `<button type="button" class="gear" id="wpOpen" aria-label="Wegpunkte" title="Wegpunkte">${icon("list")}</button>`;
     el.querySelector(".gear").addEventListener("click", openSettings);
     el.querySelector("#portal").addEventListener("click", () => setDimension(inNether() ? "overworld" : "nether"));
+    el.querySelector("#wpOpen").addEventListener("click", openWaypointList);
     return el;
   },
   onRemove() {},
@@ -395,10 +448,11 @@ function openSettings() {
   $("settings").hidden = false;
   $("settingsDone").focus();
 }
-function closeSettings() { $("settings").hidden = true; }
-$("settingsDone").addEventListener("click", closeSettings);
-$("settings").addEventListener("click", (ev) => { if (ev.target === $("settings")) closeSettings(); });
-document.addEventListener("keydown", (ev) => { if (ev.key === "Escape" && !$("settings").hidden) closeSettings(); });
+// Alle Dialoge: schließen per Klick daneben oder Escape
+const closeDialogs = () => document.querySelectorAll(".dialog").forEach((d) => (d.hidden = true));
+$("settingsDone").addEventListener("click", closeDialogs);
+document.querySelectorAll(".dialog").forEach((d) => d.addEventListener("click", (ev) => { if (ev.target === d) closeDialogs(); }));
+document.addEventListener("keydown", (ev) => { if (ev.key === "Escape") closeDialogs(); });
 document.querySelectorAll("[data-kind]").forEach((b) => b.addEventListener("click", () => {
   settings.kind = b.dataset.kind; saveSettings(); mc.setKind(settings.kind); renderSettings();
 }));
@@ -626,6 +680,96 @@ $("shareMe").addEventListener("click", () => state.player && shareCoords(state.p
 $("copyTarget").addEventListener("click", () => state.target && copyCoords(state.target));
 $("shareTarget").addEventListener("click", () => state.target && shareCoords(state.target, "Treffpunkt:"));
 
+// ---------- Wegpunkte ----------
+let waypoints = loadWaypoints();
+const wpMarkers = new Map();
+let pendingWaypoint = null, wpColor = "rot";
+
+function wpMarkerEl(wp) {
+  const el = Object.assign(document.createElement("div"), { className: "wp-marker", title: wp.name });
+  el.innerHTML = '<div class="block"></div><span class="tag"></span>';
+  el.querySelector(".block").style.background = COLORS[wp.color];
+  el.querySelector(".tag").textContent = wp.name;
+  el.addEventListener("click", (ev) => { ev.stopPropagation(); goToWaypoint(wp); });
+  return el;
+}
+function renderWaypointMarkers() {
+  for (const [id, marker] of wpMarkers) {
+    if (!waypoints.some((w) => w.id === id)) { marker.remove(); wpMarkers.delete(id); }
+  }
+  for (const wp of waypoints) {
+    if (wpMarkers.has(wp.id)) continue;
+    const { lat, lon } = conv.fromMinecraft(wp.x, wp.z);
+    wpMarkers.set(wp.id, mc.addMarker(wpMarkerEl(wp), [lon, lat]));
+  }
+}
+function goToWaypoint(wp) {
+  closeDialogs();
+  $("paste").value = fmt(wp);
+  setTarget(wp, { pan: true });
+  chat(`Ziel: ${wp.name} (${fmt(wp)})`, "yellow");
+}
+
+function renderSwatches() {
+  $("wpColors").innerHTML = "";
+  for (const [name, hex] of Object.entries(COLORS)) {
+    const b = Object.assign(document.createElement("button"), { type: "button", className: "swatch" });
+    b.style.background = hex;
+    b.setAttribute("aria-label", name);
+    b.setAttribute("aria-pressed", String(name === wpColor));
+    b.addEventListener("click", () => { wpColor = name; renderSwatches(); });
+    $("wpColors").append(b);
+  }
+}
+function openWaypointSave(c) {
+  pendingWaypoint = { x: c.x, y: c.y ?? null, z: c.z };
+  $("wpName").value = "";
+  $("wpName").placeholder = `Wegpunkt ${waypoints.length + 1}`;
+  renderSwatches();
+  $("wpSave").hidden = false;
+  $("wpName").focus();
+}
+$("wpSaveForm").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  if (!pendingWaypoint) return;
+  waypoints = addWaypoint(waypoints, { ...pendingWaypoint, name: $("wpName").value, color: wpColor });
+  if (!saveWaypoints(waypoints)) chat("Speichern im Browser nicht möglich, der Wegpunkt gilt nur bis zum Neuladen.", "red");
+  renderWaypointMarkers();
+  chat(`Wegpunkt gespeichert: ${waypoints.at(-1).name}`, "green");
+  pendingWaypoint = null;
+  closeDialogs();
+});
+$("wpCancel").addEventListener("click", closeDialogs);
+$("saveMe").addEventListener("click", () => state.player && openWaypointSave(state.player));
+$("saveTarget").addEventListener("click", () => state.target && openWaypointSave(state.target));
+
+function openWaypointList() {
+  const items = $("wpItems");
+  items.innerHTML = waypoints.length ? "" : '<p class="wp-empty">Noch keine Wegpunkte. Speichere sie mit dem Stern bei „Du“ oder „Ziel“.</p>';
+  for (const wp of waypoints) {
+    const row = Object.assign(document.createElement("div"), { className: "wp-item" });
+    row.innerHTML = '<span class="dot"></span><span class="text"><div class="name"></div><div class="pos"></div></span>'
+      + '<button type="button" class="mc" data-act="go">Ziel</button>'
+      + `<button type="button" class="mc icon" data-act="del" aria-label="Wegpunkt löschen">${icon("trash")}</button>`;
+    row.querySelector(".dot").style.background = COLORS[wp.color];
+    row.querySelector(".name").textContent = wp.name;
+    const d = state.player ? directionTo(shown(state.player), shown(wp)) : null;
+    row.querySelector(".pos").textContent = fmt(wp) + (d ? ` · ${d.dist} Blöcke ${d.dir}` : "");
+    row.querySelector('[data-act="go"]').addEventListener("click", () => goToWaypoint(wp));
+    row.querySelector('[data-act="del"]').addEventListener("click", () => {
+      waypoints = removeWaypoint(waypoints, wp.id);
+      saveWaypoints(waypoints);
+      renderWaypointMarkers();
+      chat(`Wegpunkt gelöscht: ${wp.name}`, "gray");
+      openWaypointList();
+    });
+    items.append(row);
+  }
+  $("wpList").hidden = false;
+}
+$("wpListDone").addEventListener("click", closeDialogs);
+renderWaypointMarkers();
+
 function applyInput({ pan, announce }) {
   const c = parseCoords($("paste").value);
   if (!c) {
@@ -680,6 +824,7 @@ function onPosition(pos) {
     $("gps").hidden = true;
     $("copyMe").hidden = false;
     $("shareMe").hidden = false;
+    $("saveMe").hidden = false;
     chat(`Position gefunden: ${fmt(state.player)}`, "green");
   }
   renderF3();
