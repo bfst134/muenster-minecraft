@@ -195,10 +195,11 @@
   /* Dialoge: abgedunkelter Hintergrund wie das Optionsmenü im Spiel */
   .dialog {
     position: fixed; inset: 0; z-index: 10; background: rgba(16, 16, 16, 0.72);
-    display: grid; place-items: center; padding: 16px; overflow-y: auto;
+    display: flex; padding: 16px; overflow-y: auto;
     text-shadow: 2px 2px 0 var(--shadow);
   }
-  .dialog .box { width: min(100%, 360px); display: grid; gap: 14px; }
+  /* margin: auto zentriert und lässt lange Dialoge auf kleinen Handys oben erreichbar */
+  .dialog .box { width: min(100%, 360px); margin: auto; display: grid; gap: 14px; }
   .dialog h2 { margin: 0; text-align: center; font: 600 22px var(--pixel); }
   .dialog .group { display: grid; gap: 6px; }
   .dialog .group .row button, .dialog .actions button { flex: 1; }
@@ -279,6 +280,7 @@
         <button id="copyTarget" type="button" class="mc icon" data-icon="copy" aria-label="Ziel kopieren"></button>
         <button id="shareTarget" type="button" class="mc icon" data-icon="share" aria-label="Ziel teilen"></button>
         <button id="saveTarget" type="button" class="mc icon" data-icon="star" aria-label="Ziel als Wegpunkt speichern"></button>
+        <button id="routeBtn" type="button" class="mc icon" data-icon="route" aria-label="Route zum Ziel anzeigen" aria-pressed="false"></button>
       </span>
     </div>
   </form>
@@ -358,6 +360,13 @@
       </div>
     </div>
     <div class="group">
+      <span class="label">Route</span>
+      <div class="row">
+        <button type="button" class="mc" data-route="bike">Fahrrad</button>
+        <button type="button" class="mc" data-route="foot">Zu Fuß</button>
+      </div>
+    </div>
+    <div class="group">
       <span class="label">Ton</span>
       <div class="row">
         <button type="button" class="mc" data-sound="on">An</button>
@@ -370,14 +379,15 @@
 </div>
 
 <script type="module">
-import { VERSION, CONFIG, createConverter, facing, nether, fromNether, parseCoords, formatCoords } from "./coords.js?v=20261028g";
-import { createMcMap, PIXEL_SIZES } from "./mcmap.js?v=20261028g";
-import { icon } from "./icons.js?v=20261028g";
-import { biomeFor } from "./biome.js?v=20261028g";
-import { sunElevation, mcTicks, dayPhase, skyTint } from "./sky.js?v=20261028g";
-import { describeWeather, fetchWeather, WeatherFx } from "./weather.js?v=20261028g";
-import { COLORS, loadWaypoints, saveWaypoints, addWaypoint, removeWaypoint } from "./waypoints.js?v=20261028g";
-import { ACHIEVEMENTS, placesReached, loadUnlocked, saveUnlocked } from "./achievements.js?v=20261028g";
+import { VERSION, CONFIG, createConverter, facing, nether, fromNether, parseCoords, formatCoords } from "./coords.js?v=20261031d";
+import { createMcMap, PIXEL_SIZES } from "./mcmap.js?v=20261031d";
+import { icon } from "./icons.js?v=20261031d";
+import { biomeFor } from "./biome.js?v=20261031d";
+import { sunElevation, mcTicks, dayPhase, skyTint } from "./sky.js?v=20261031d";
+import { describeWeather, fetchWeather, WeatherFx } from "./weather.js?v=20261031d";
+import { COLORS, loadWaypoints, saveWaypoints, addWaypoint, removeWaypoint } from "./waypoints.js?v=20261031d";
+import { ACHIEVEMENTS, placesReached, loadUnlocked, saveUnlocked } from "./achievements.js?v=20261031d";
+import { ROUTE_MODES, fetchRoute, formatDuration, routeProgress } from "./routing.js?v=20261031d";
 
 const conv = createConverter(proj4);
 const $ = (id) => document.getElementById(id);
@@ -390,12 +400,13 @@ fillIcons();
 const state = { player: null, heading: null, target: null, biome: null };
 
 // ---------- Einstellungen, gespeichert im Browser ----------
-const settings = { kind: "mc", pixel: "mittel", sound: true, daynight: "real", weather: "real", dimension: "overworld" };
+const settings = { kind: "mc", pixel: "mittel", sound: true, daynight: "real", weather: "real", dimension: "overworld", route: "bike" };
 try {
   Object.assign(settings, JSON.parse(localStorage.getItem("mc-settings") ?? "{}"));
   if (localStorage.getItem("mc-sound") === "off") settings.sound = false;
 } catch {}
 if (!(settings.pixel in PIXEL_SIZES)) settings.pixel = "mittel";
+if (!ROUTE_MODES.includes(settings.route)) settings.route = "bike";
 function saveSettings() {
   try { localStorage.setItem("mc-settings", JSON.stringify(settings)); } catch {}
 }
@@ -502,7 +513,7 @@ let playerMarker, targetMarker;
 
 // ---------- Einstellungsdialog ----------
 function renderSettings() {
-  for (const [attr, value] of [["kind", settings.kind], ["pixel", settings.pixel], ["sound", settings.sound ? "on" : "off"], ["daynight", settings.daynight], ["weather", settings.weather], ["dimension", settings.dimension]]) {
+  for (const [attr, value] of [["kind", settings.kind], ["pixel", settings.pixel], ["sound", settings.sound ? "on" : "off"], ["daynight", settings.daynight], ["weather", settings.weather], ["dimension", settings.dimension], ["route", settings.route]]) {
     document.querySelectorAll(`[data-${attr}]`).forEach((b) => b.setAttribute("aria-pressed", String(b.dataset[attr] === value)));
   }
   document.querySelectorAll("[data-pixel]").forEach((b) => (b.disabled = settings.kind !== "mc"));
@@ -688,7 +699,7 @@ function renderTarget() {
   const n = nether(t.x, t.z);
   const lat = t.lat.toFixed(6), lon = t.lon.toFixed(6);
   const other = inNether() ? `Oberwelt ${t.x} / ${t.z}` : `Nether ${n.x} / ${n.z}`;
-  const parts = [distanceText(t), other].filter(Boolean).join(" · ");
+  const parts = state.route ? routeText() : [distanceText(t), other].filter(Boolean).join(" · ");
   $("targetInfo").innerHTML = `${parts}<br>`
     + `<a href="https://maps.apple.com/?ll=${lat},${lon}&q=${encodeURIComponent(fmt(t))}" target="_blank" rel="noopener">Apple</a> · `
     + `<a href="https://www.google.com/maps/search/?api=1&query=${lat},${lon}" target="_blank" rel="noopener">Google Maps</a>`;
@@ -696,6 +707,7 @@ function renderTarget() {
 
 function setTarget(c, { pan = false } = {}) {
   if (pan) setFollow(false);
+  clearRoute();
   const { lat, lon } = conv.fromMinecraft(c.x, c.z);
   state.target = { x: c.x, y: c.y ?? null, z: c.z, lat, lon };
   if (!targetMarker) targetMarker = mc.addMarker(blockEl("target"), [lon, lat]);
@@ -703,6 +715,91 @@ function setTarget(c, { pan = false } = {}) {
   if (pan) map.easeTo({ center: [lon, lat], zoom: Math.max(map.getZoom(), 16.5) });
   renderTarget();
 }
+
+// ---------- Route zum Ziel ----------
+// Die eigene Position geht nur an den Routing-Server, wenn man tippt oder die Route verlässt.
+// Unterwegs rechnet das Handy selbst, denn der Server erlaubt keine Daueranfragen.
+const ROUTE_PADDING = { top: 130, bottom: 60, left: 40, right: 72 };
+const ROUTE_OFF_M = 40;              // so weit (plus GPS-Ungenauigkeit) neben der Linie gilt als verlassen
+const ROUTE_RETRY_MS = 15000;        // frühestens so oft automatisch neu berechnen
+const ROUTE_ARRIVED_M = 20;          // so nah am Ende gilt als angekommen
+let routeNoteShown = false, routeToken = 0, lastRouteAt = 0;
+
+function routeText() {
+  const { distance, duration, left } = state.route;
+  const blocks = Math.round((distance * left) / (inNether() ? 8 : 1));
+  return `Route ${blocks} Blöcke · ${formatDuration(duration * left)}`;
+}
+function renderRouteButton() {
+  $("routeBtn").setAttribute("aria-pressed", String(Boolean(state.route)));
+  $("routeBtn").disabled = Boolean(state.routeLoading && !state.route);
+}
+function clearRoute() {
+  routeToken++; // laufende Anfragen sind damit überholt
+  state.route = null;
+  state.routeLoading = false;
+  mc.setRoute(null);
+  renderRouteButton();
+  renderTarget();
+}
+// quiet: automatische Neuberechnung unterwegs, ohne Meldungen und ohne die Karte zu bewegen
+async function showRoute({ quiet = false } = {}) {
+  const from = state.player, to = state.target;
+  if (!to) return;
+  if (!from) { chat("Starte zuerst GPS, dann kann ich die Route berechnen.", "yellow"); return; }
+  if (!routeNoteShown) {
+    routeNoteShown = true;
+    chat("Für die Route geht deine Position an routing.openstreetmap.de.", "gray");
+  }
+  const token = ++routeToken;
+  lastRouteAt = Date.now();
+  state.routeLoading = true;
+  renderRouteButton();
+  if (!quiet) chat(`Route ${settings.route === "foot" ? "zu Fuß" : "mit dem Fahrrad"} wird berechnet …`, "gray");
+  try {
+    const route = await fetchRoute(from, to, settings.route);
+    if (token !== routeToken) return; // Ziel oder Route wurde inzwischen geändert
+    if (!route) { if (!quiet) chat("Keine Route gefunden.", "red"); return; }
+    state.route = { ...route, left: 1 };
+    mc.setRoute(route.coordinates);
+    if (!quiet) {
+      setFollow(false);
+      mc.fitRoute(route.coordinates, ROUTE_PADDING);
+    }
+    renderTarget();
+  } catch {
+    if (!quiet) chat("Route gerade nicht verfügbar.", "red");
+  } finally {
+    if (token === routeToken) {
+      state.routeLoading = false;
+      renderRouteButton();
+    }
+  }
+}
+// Bei jeder GPS-Position: Linie kürzen, Rest anzeigen, angekommen erkennen oder nach einem Umweg neu berechnen
+function updateRoute() {
+  const route = state.route, p = state.player;
+  if (!route) return;
+  const progress = routeProgress(route.coordinates, [p.lon, p.lat]);
+  if (progress.offRoute > ROUTE_OFF_M + p.accuracy) {
+    if (!state.routeLoading && Date.now() - lastRouteAt >= ROUTE_RETRY_MS) showRoute({ quiet: true });
+    return;
+  }
+  if (progress.remaining < ROUTE_ARRIVED_M) {
+    clearRoute();
+    chat("Du hast dein Ziel erreicht!", "green");
+    return;
+  }
+  route.left = progress.total ? progress.remaining / progress.total : 0;
+  mc.setRoute(progress.coordinates);
+}
+$("routeBtn").addEventListener("click", () => (state.route ? clearRoute() : showRoute()));
+document.querySelectorAll("[data-route]").forEach((b) => b.addEventListener("click", () => {
+  settings.route = b.dataset.route;
+  saveSettings();
+  renderSettings();
+  if (state.route) { clearRoute(); showRoute(); }
+}));
 
 // ---------- Kopieren, Einfügen, Teilen ----------
 async function copyText(text) {
@@ -819,12 +916,17 @@ function openWaypointList() {
     const row = Object.assign(document.createElement("div"), { className: "wp-item" });
     row.innerHTML = '<span class="dot"></span><span class="text"><div class="name"></div><div class="pos"></div></span>'
       + '<button type="button" class="mc" data-act="go">Ziel</button>'
+      + `<button type="button" class="mc icon" data-act="route" aria-label="Route zum Wegpunkt anzeigen">${icon("route")}</button>`
       + `<button type="button" class="mc icon" data-act="del" aria-label="Wegpunkt löschen">${icon("trash")}</button>`;
     row.querySelector(".dot").style.background = COLORS[wp.color];
     row.querySelector(".name").textContent = wp.name;
     const d = state.player ? directionTo(shown(state.player), shown(wp)) : null;
     row.querySelector(".pos").textContent = fmt(wp) + (d ? ` · ${d.dist} Blöcke ${d.dir}` : "");
     row.querySelector('[data-act="go"]').addEventListener("click", () => goToWaypoint(wp));
+    row.querySelector('[data-act="route"]').addEventListener("click", () => {
+      goToWaypoint(wp);
+      showRoute();
+    });
     row.querySelector('[data-act="del"]').addEventListener("click", () => {
       waypoints = removeWaypoint(waypoints, wp.id);
       saveWaypoints(waypoints);
@@ -984,6 +1086,7 @@ function onPosition(pos) {
   mc.setAccuracy(lat, lon, accuracy);
   updateBiome();
   checkPositionAchievements();
+  updateRoute();
   if (first) {
     locate.hidden = false;
     if (!state.target) { map.easeTo({ center: [lon, lat], zoom: 17 }); setFollow(true); }

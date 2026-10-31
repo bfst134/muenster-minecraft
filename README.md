@@ -12,11 +12,14 @@ Reale Positionen in Münster als Minecraft-Koordinaten (1 Block = 1 m), Ursprung
 - `weather.js`: Echtes Wetter am Dom (Open-Meteo, ohne Schlüssel) und Pixel-Regen, -Schnee, Gewitter und Nebel.
 - `waypoints.js`: Wegpunkte, im Browser gespeichert.
 - `achievements.js`: Fortschritte für Orte in Münster und Aktionen in der App.
+- `routing.js`: Route zum Ziel mit dem OSRM-Server von FOSSGIS (`routing.openstreetmap.de`, Fahrrad oder zu Fuß).
 - `icons.js`: Pixel-Icons als SVG.
 - `test.html`: Tests im Browser, mit Referenzwerten aus pyproj.
 - `manifest.webmanifest`, `icons/`: Homescreen-Icon und Vollbildmodus.
 
 Einstellungen, Wegpunkte und Fortschritte liegen nur im Browser des jeweiligen Geräts.
+Die einzige Ausnahme ist die Route: Beim Antippen gehen die eigene Position und das Ziel an den Routing-Server, der Anfragen protokolliert.
+Unterwegs kürzt das Handy die Linie selbst. Der Server wird nur wieder gefragt, wenn man die Route verlässt, und höchstens alle 15 Sekunden (Nutzungsregeln: sparsam, maximal eine Anfrage pro Sekunde).
 
 ## Starten
 

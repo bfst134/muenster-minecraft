@@ -14,12 +14,13 @@
 <h1 id="summary">Tests laufen …</h1>
 <ul id="out"></ul>
 <script type="module">
-import { CONFIG, createConverter, facing, nether, fromNether, parseCoords, formatCoords } from "./coords.js?v=20261028g";
-import { pointInFeature, biomeFor } from "./biome.js?v=20261028g";
-import { sunElevation, mcTicks, dayPhase, skyTint } from "./sky.js?v=20261028g";
-import { describeWeather } from "./weather.js?v=20261028g";
-import { loadWaypoints, saveWaypoints, addWaypoint, removeWaypoint } from "./waypoints.js?v=20261028g";
-import { ACHIEVEMENTS, inArea, placesReached, loadUnlocked, saveUnlocked } from "./achievements.js?v=20261028g";
+import { CONFIG, createConverter, facing, nether, fromNether, parseCoords, formatCoords } from "./coords.js?v=20261031d";
+import { pointInFeature, biomeFor } from "./biome.js?v=20261031d";
+import { sunElevation, mcTicks, dayPhase, skyTint } from "./sky.js?v=20261031d";
+import { describeWeather } from "./weather.js?v=20261031d";
+import { loadWaypoints, saveWaypoints, addWaypoint, removeWaypoint } from "./waypoints.js?v=20261031d";
+import { ACHIEVEMENTS, inArea, placesReached, loadUnlocked, saveUnlocked } from "./achievements.js?v=20261031d";
+import { routeUrl, parseRoute, formatDuration, routeProgress } from "./routing.js?v=20261031d";
 
 const results = [];
 function test(name, fn) {
@@ -252,6 +253,46 @@ test("Fortschritte speichern und laden", () => {
   eq(loadUnlocked(mem).spawn, "2026-10-28");
   mem.data["mc-achievements"] = "[1,2]";
   eq(Object.keys(loadUnlocked(mem)).length, 0, "falsches Format → leer");
+});
+
+test("Route: Anfrage-Adresse je Verkehrsmittel", () => {
+  const from = { lat: 51.9625, lon: 7.6275 }, to = { lat: 51.9564, lon: 7.6358 };
+  const foot = routeUrl(from, to, "foot");
+  eq(foot.includes("/routed-foot/"), true, "Profil zu Fuß");
+  eq(foot.includes("7.627500,51.962500;7.635800,51.956400"), true, "OSRM erwartet Länge vor Breite");
+  eq(routeUrl(from, to, "gibtsnicht").includes("/routed-bike/"), true, "unbekannt → Fahrrad");
+});
+
+test("Route: Antwort des Servers auswerten", () => {
+  const ok = { code: "Ok", routes: [{ distance: 1382, duration: 410, geometry: { coordinates: [[7.6, 51.9], [7.7, 52]] } }] };
+  const r = parseRoute(ok);
+  eq(r.distance, 1382); eq(r.duration, 410); eq(r.coordinates.length, 2);
+  eq(parseRoute({ code: "NoRoute" }), null, "keine Route");
+  eq(parseRoute({ code: "Ok", routes: [] }), null, "leere Liste");
+  eq(parseRoute(null), null, "kaputte Antwort");
+});
+
+test("Route: Fortschritt auf der Linie", () => {
+  // Gerade nach Norden, zwei Abschnitte, zusammen etwa 2211 m
+  const line = [[7.6, 51.96], [7.6, 51.97], [7.6, 51.98]];
+  const start = routeProgress(line, [7.6, 51.96]);
+  near(start.remaining, start.total, 1, "am Start ist alles übrig");
+  near(start.offRoute, 0, 1, "auf der Linie");
+  const middle = routeProgress(line, [7.6, 51.975]);
+  near(middle.remaining / middle.total, 0.25, 0.01, "drei Viertel geschafft");
+  eq(middle.coordinates.length, 2, "gefahrener Teil fällt weg");
+  near(middle.coordinates[0][1], 51.975, 0.0001, "Linie beginnt an der Position");
+  const beside = routeProgress(line, [7.602, 51.97]);
+  near(beside.offRoute, 137, 5, "etwa 137 m neben der Linie");
+  const end = routeProgress(line, [7.6, 51.981]);
+  near(end.remaining, 0, 1, "hinter dem Ende bleibt nichts übrig");
+});
+
+test("Route: Dauer lesbar ausgeben", () => {
+  eq(formatDuration(10), "1 min", "mindestens 1 min");
+  eq(formatDuration(410), "7 min");
+  eq(formatDuration(3540), "59 min");
+  eq(formatDuration(3900), "1 h 5 min");
 });
 
 const failed = results.filter((r) => !r.ok);

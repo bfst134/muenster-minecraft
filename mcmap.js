@@ -2,7 +2,7 @@
 // Die Karte wird absichtlich in niedriger Auflösung gezeichnet und ohne Glättung hochskaliert (Pixel-Look).
 // Beschriftungen liegen als zweite, scharfe Karte darüber; sie trägt auch die Marker.
 
-import { pointInFeature } from "./biome.js?v=20261028g";
+import { pointInFeature } from "./biome.js?v=20261031d";
 
 // Pixelgröße in CSS-Pixeln je Kartenpixel
 export const PIXEL_SIZES = { fein: 1.5, mittel: 2, grob: 3 };
@@ -230,6 +230,14 @@ const LABEL_STYLE = {
   layers: LABEL_LAYERS,
 };
 
+// Route in Redstone-Rot; im roten Nether ginge das unter, dort leuchtet sie türkis wie Seelenfeuer
+const ROUTE_COLORS = {
+  overworld: { line: "#e0201c", casing: "#5a0d0b" },
+  nether: { line: "#39d9e0", casing: "#0d3a3d" },
+};
+// Vom Routing-Server verlangt: Quellenangabe und ein Link, um Kartenfehler zu melden
+const ROUTE_ATTRIBUTION = 'Route: <a href="https://routing.openstreetmap.de/about.html" target="_blank">FOSSGIS OSRM</a> · <a href="https://www.openstreetmap.org/fixthemap" target="_blank">Karte verbessern</a>';
+
 // Genauigkeitskreis als Polygon mit Radius in Metern
 function circle(lat, lon, radius, steps = 48) {
   const dLat = radius / 111320, dLon = radius / (111320 * Math.cos((lat * Math.PI) / 180));
@@ -266,12 +274,21 @@ export function createMcMap({ container, labelsContainer, center, zoom, pixelSiz
       }
     }
     for (const [id, img] of Object.entries(PATTERNS[state.dim])) if (map.hasImage(id)) map.updateImage(id, img);
+    if (map.getLayer("route")) {
+      map.setPaintProperty("route", "line-color", ROUTE_COLORS[state.dim].line);
+      map.setPaintProperty("route-casing", "line-color", ROUTE_COLORS[state.dim].casing);
+    }
   }
 
-  // Genauigkeitskreis der GPS-Position, liegt über allen Kartenebenen
-  let pendingAccuracy = null;
+  // Route und Genauigkeitskreis der GPS-Position, liegen über allen Kartenebenen
+  let pendingAccuracy = null, pendingRoute = null;
   const accuracyData = (f) => ({ type: "FeatureCollection", features: f ? [f] : [] });
+  const routeData = (coordinates) => accuracyData(coordinates && { type: "Feature", geometry: { type: "LineString", coordinates }, properties: {} });
   map.on("load", () => {
+    map.addSource("route", { type: "geojson", data: routeData(pendingRoute), attribution: ROUTE_ATTRIBUTION });
+    const line = { type: "line", source: "route", layout: { "line-cap": "round", "line-join": "round" } };
+    map.addLayer({ ...line, id: "route-casing", paint: { "line-color": ROUTE_COLORS[state.dim].casing, "line-width": width(12, 6, 16, 10, 18, 16) } });
+    map.addLayer({ ...line, id: "route", paint: { "line-color": ROUTE_COLORS[state.dim].line, "line-width": width(12, 3, 16, 6, 18, 11) } });
     map.addSource("accuracy", { type: "geojson", data: accuracyData(pendingAccuracy) });
     map.addLayer({ id: "accuracy", type: "fill", source: "accuracy", paint: { "fill-color": "#3fc6d6", "fill-opacity": 0.18 } });
     map.addLayer({ id: "accuracy-edge", type: "line", source: "accuracy", paint: { "line-color": "#1d7e8a", "line-width": 1.5 } });
@@ -308,6 +325,15 @@ export function createMcMap({ container, labelsContainer, center, zoom, pixelSiz
       const f = circle(lat, lon, radius);
       const src = map.getSource("accuracy");
       if (src) src.setData(accuracyData(f)); else pendingAccuracy = f;
+    },
+    // Route als Liste von [lon, lat]; null löscht sie
+    setRoute(coordinates) {
+      const src = map.getSource("route");
+      if (src) src.setData(routeData(coordinates)); else pendingRoute = coordinates;
+    },
+    fitRoute(coordinates, padding) {
+      const bounds = coordinates.reduce((b, c) => b.extend(c), new maplibregl.LngLatBounds(coordinates[0], coordinates[0]));
+      map.fitBounds(bounds, { padding, maxZoom: 17.5 });
     },
     setKind(kind) {
       state.kind = kind;
