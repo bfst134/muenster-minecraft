@@ -36,7 +36,8 @@ Mit diesen Parametern werden keine Nacht- oder Wetter-Fortschritte freigeschalte
 ## Nach Änderungen
 
 Alle Modul-Importe tragen `?v=…`. Bei jeder Änderung an einer `.js`-Datei die Version überall hochzählen,
-sonst mischt der Browser nach dem Update neue und alte Dateien aus dem Cache:
+sonst mischt der Browser nach dem Update neue und alte Dateien aus dem Cache.
+Die App liest diese Nummer auch beim Start und bei der Rückkehr aus der `index.html` am Server und aktualisiert sich selbst:
 
 ```bash
 sed -i '' -E 's#\.js\?v=[0-9a-z]+"#.js?v=NEU"#g' index.html test.html mcmap.js

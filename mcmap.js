@@ -2,7 +2,7 @@
 // Die Karte wird absichtlich in niedriger Auflösung gezeichnet und ohne Glättung hochskaliert (Pixel-Look).
 // Beschriftungen liegen als zweite, scharfe Karte darüber; sie trägt auch die Marker.
 
-import { pointInFeature } from "./biome.js?v=20261031d";
+import { pointInFeature } from "./biome.js?v=20261031e";
 
 // Pixelgröße in CSS-Pixeln je Kartenpixel
 export const PIXEL_SIZES = { fein: 1.5, mittel: 2, grob: 3 };

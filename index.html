@@ -374,20 +374,21 @@
       </div>
     </div>
     <button type="button" class="mc done" id="settingsDone">Fertig</button>
+    <button type="button" class="mc done" id="updateBtn" hidden>Aktualisieren</button>
     <p class="version" id="version"></p>
   </div>
 </div>
 
 <script type="module">
-import { VERSION, CONFIG, createConverter, facing, nether, fromNether, parseCoords, formatCoords } from "./coords.js?v=20261031d";
-import { createMcMap, PIXEL_SIZES } from "./mcmap.js?v=20261031d";
-import { icon } from "./icons.js?v=20261031d";
-import { biomeFor } from "./biome.js?v=20261031d";
-import { sunElevation, mcTicks, dayPhase, skyTint } from "./sky.js?v=20261031d";
-import { describeWeather, fetchWeather, WeatherFx } from "./weather.js?v=20261031d";
-import { COLORS, loadWaypoints, saveWaypoints, addWaypoint, removeWaypoint } from "./waypoints.js?v=20261031d";
-import { ACHIEVEMENTS, placesReached, loadUnlocked, saveUnlocked } from "./achievements.js?v=20261031d";
-import { ROUTE_MODES, fetchRoute, formatDuration, routeProgress } from "./routing.js?v=20261031d";
+import { VERSION, CONFIG, createConverter, facing, nether, fromNether, parseCoords, formatCoords } from "./coords.js?v=20261031e";
+import { createMcMap, PIXEL_SIZES } from "./mcmap.js?v=20261031e";
+import { icon } from "./icons.js?v=20261031e";
+import { biomeFor } from "./biome.js?v=20261031e";
+import { sunElevation, mcTicks, dayPhase, skyTint } from "./sky.js?v=20261031e";
+import { describeWeather, fetchWeather, WeatherFx } from "./weather.js?v=20261031e";
+import { COLORS, loadWaypoints, saveWaypoints, addWaypoint, removeWaypoint } from "./waypoints.js?v=20261031e";
+import { ACHIEVEMENTS, placesReached, loadUnlocked, saveUnlocked } from "./achievements.js?v=20261031e";
+import { ROUTE_MODES, fetchRoute, formatDuration, routeProgress } from "./routing.js?v=20261031e";
 
 const conv = createConverter(proj4);
 const $ = (id) => document.getElementById(id);
@@ -1142,7 +1143,47 @@ $("gps").addEventListener("click", () => {
   navigator.geolocation.watchPosition(onPosition, onPositionError, { enableHighAccuracy: true, maximumAge: 2000, timeout: 20000 });
 });
 
+// ---------- Selbst-Update ----------
+// iOS hält Homescreen-Apps samt Seite fest. Darum beim Start und bei der Rückkehr in die App
+// die aktuelle Version am Server nachsehen, vorbei am Cache: Sie steht in den Modul-Importen der index.html.
+const UPDATE_CHECK_MS = 60000;
+let lastUpdateCheck = 0, pendingVersion = null;
+
+// Die neue Adresse (?u=…) kommt garantiert nicht aus dem Cache; beim Start wird ?u wieder entfernt
+function installUpdate(latest) {
+  // Merken, was versucht wurde: Kommt trotzdem die alte Version, bleibt es bei einem Versuch
+  try { localStorage.setItem("mc-update-tried", latest); } catch { return; }
+  const url = new URL(location.href);
+  url.searchParams.set("u", latest);
+  location.replace(url);
+}
+async function checkForUpdate({ starting = false } = {}) {
+  lastUpdateCheck = Date.now();
+  try {
+    const res = await fetch(location.pathname, { cache: "no-store" });
+    const latest = /coords\.js\?v=([0-9a-z]+)/.exec(await res.text())?.[1];
+    if (!res.ok || !latest || latest === VERSION) return;
+    if (localStorage.getItem("mc-update-tried") === latest) return;
+    // Beim Start geht nichts verloren; danach nicht mitten in einem Ziel oder einer Route neu laden
+    if (starting || !state.target) { installUpdate(latest); return; }
+    if (pendingVersion === latest) return;
+    pendingVersion = latest;
+    $("updateBtn").hidden = false;
+    chat("Neue Version da. Aktualisieren geht in den Einstellungen.", "yellow");
+  } catch {} // ohne Netz einfach mit der geladenen Version weitermachen
+}
+$("updateBtn").addEventListener("click", () => installUpdate(pendingVersion));
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && Date.now() - lastUpdateCheck >= UPDATE_CHECK_MS) checkForUpdate();
+});
+
 // ---------- Start ----------
+const justUpdated = new URLSearchParams(location.search).has("u");
+if (justUpdated) {
+  const clean = new URL(location.href);
+  clean.searchParams.delete("u");
+  history.replaceState(null, "", clean);
+}
 updateSky();
 updateWeather();
 // Nur x, y und z aus dem Link lesen, andere Parameter (z. B. zeit) ignorieren
@@ -1160,6 +1201,8 @@ if (shared) {
 } else {
   chat("Willkommen in Münster! Der Spawn ist am Dom.", "yellow");
 }
+if (justUpdated) chat(`App aktualisiert auf Version ${VERSION}.`, "green");
+checkForUpdate({ starting: true });
 </script>
 </body>
 </html>
